@@ -1,0 +1,9 @@
+[workspace]
+
+members = [
+    "easyamqp"
+]
+
+exclude = [
+    "examples/easyarun"
+]
