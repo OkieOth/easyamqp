@@ -28,23 +28,31 @@ enum ClientCommandResponse {
 }
 
 
-pub struct RabbitClient {
+struct RabbitClientCont {
     tx_req: Sender<ClientCommand>,
-    mutex_resp: Arc<Mutex<Receiver<ClientCommandResponse>>>,
+    rx_resp: Receiver<ClientCommandResponse>,
+}
+
+#[derive(Clone)]
+pub struct RabbitClient {
+    mutex: Arc<Mutex<RabbitClientCont>>,
 }
 
 impl RabbitClient {
     pub async fn new() -> RabbitClient {
         let (tx_req, rx_req): (Sender<ClientCommand>, Receiver<ClientCommand>) = mpsc::channel(1);
         let (tx_resp, rx_resp): (Sender<ClientCommandResponse>, Receiver<ClientCommandResponse>) = mpsc::channel(1);
-        RabbitClient::start_management_task(rx_req,tx_resp).await;
-        RabbitClient {
+        RabbitClient::start_management_task(rx_req,tx_resp);
+        let c = RabbitClientCont {
             tx_req: tx_req,
-            mutex_resp: Arc::new(Mutex::new(rx_resp)),
+            rx_resp: rx_resp,
+        };
+        RabbitClient {
+            mutex: Arc::new(Mutex::new(c)),
         }
     }
 
-    async fn start_management_task(mut rx_req: Receiver<ClientCommand>, tx_resp: Sender<ClientCommandResponse>) {
+    fn start_management_task(mut rx_req: Receiver<ClientCommand>, tx_resp: Sender<ClientCommandResponse>) {
         tokio::spawn(async move {
             while let Some(cc) = rx_req.recv().await {
                 debug!("receive client command: {}", cc);
@@ -60,11 +68,12 @@ impl RabbitClient {
     }
 
     pub async fn dummy(&self, i: i32) -> std::result::Result<i32, String> {
-        let mut rx_resp = self.mutex_resp.lock().await;
-        if self.tx_req.send(ClientCommand::Dummy(i)).await.is_err() {
+        let mut guard = self.mutex.lock().await;
+        let c: &mut RabbitClientCont = &mut *guard;
+        if c.tx_req.send(ClientCommand::Dummy(i)).await.is_err() {
             return Err("error while sending dummy request".to_string());
         }
-        match rx_resp.recv().await {
+        match c.rx_resp.recv().await {
             Some(resp) => {
                 debug!("receive propper response from dummy request");
                 if let ClientCommandResponse::DummyResponse(value) = resp {
@@ -80,11 +89,12 @@ impl RabbitClient {
     }
 
     pub async fn close(&mut self) {
-        let mut rx_resp = self.mutex_resp.lock().await;
-        if self.tx_req.send(ClientCommand::Cancel).await.is_err() {
+        let mut guard = self.mutex.lock().await;
+        let c: &mut RabbitClientCont = &mut *guard;
+        if c.tx_req.send(ClientCommand::Cancel).await.is_err() {
             error!("error while sending cancel request");
         }
-        match rx_resp.recv().await {
+        match c.rx_resp.recv().await {
             Some(resp) => {
                 debug!("receive propper response from cancel request");
             },
@@ -117,6 +127,22 @@ impl RabbitClient {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::rabbitclient;
 
 
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn first() {
+        let mut client = rabbitclient::RabbitClient::new().await;
+        let dummy_input = 13;
+        let dummy_result = client.dummy(dummy_input).await.unwrap();
+
+        assert_eq!(dummy_input, dummy_result);
+        client.close().await;
+
+    }
 }
