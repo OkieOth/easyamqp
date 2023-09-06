@@ -59,7 +59,7 @@ impl RabbitClient {
         });
     }
 
-    async fn dummy(&self, i: i32) -> std::result::Result<i32, String> {
+    pub async fn dummy(&self, i: i32) -> std::result::Result<i32, String> {
         let mut rx_resp = self.mutex_resp.lock().await;
         if self.tx_req.send(ClientCommand::Dummy(i)).await.is_err() {
             return Err("error while sending dummy request".to_string());
@@ -79,7 +79,7 @@ impl RabbitClient {
         }
     }
 
-    async fn close(&mut self) {
+    pub async fn close(&mut self) {
         let mut rx_resp = self.mutex_resp.lock().await;
         if self.tx_req.send(ClientCommand::Cancel).await.is_err() {
             error!("error while sending cancel request");
