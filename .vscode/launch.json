@@ -7,14 +7,14 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug easyarun",
+            "name": "Debug playground",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=easyarun"
+                    "--bin=playground"
                 ],
                 "filter": {
-                    "name": "easyarun",
+                    "name": "playground",
                     "kind": "bin"
                 },
                 ""
@@ -27,7 +27,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug easyarun",
-            "program": "${workspaceFolder}/easyarun",
+            "program": "${workspaceFolder}/examples/playground",
             "args": [],
             "cwd": "${workspaceFolder}"
         }

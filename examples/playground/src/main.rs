@@ -2,6 +2,7 @@ use log::{info, error};
 use env_logger::Env;
 
 use easyamqp::rabbitclient;
+use tokio::task::JoinError;
 
 async fn task(input: i32, client: rabbitclient::RabbitClient) {
     for i in 0..100 {
@@ -40,9 +41,9 @@ fn main() {
             let task9_handle = tokio::spawn(task(99, client.clone()));
             let task10_handle = tokio::spawn(task(78, client.clone()));
 
-            tokio::join!(task1_handle, task2_handle,
+            let _r = tokio::join!(task1_handle, task2_handle,
                 task3_handle, task4_handle, task5_handle,
                 task6_handle, task7_handle, task8_handle, task9_handle, task10_handle);
-            client.close().await;
+            client.close().await
         });
 }

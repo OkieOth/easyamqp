@@ -1,9 +1,6 @@
 [workspace]
 
 members = [
-    "easyamqp"
-]
-
-exclude = [
-    "examples/easyarun"
+    "easyamqp",
+    "examples/playground"
 ]
