@@ -1,3 +1,7 @@
+//! Simple RabbitMq Client implementation. It utilized amqprs (https://github.com/gftea/amqprs)
+//! The main handle to the client is a thread safe RabbitCient instance, that works as
+//! factory to create internally the needed connection objects. In addition it is used the
+//! create workers on the connection that can be used for publishing and subscribing of data.
 use log::{debug, error, info};
 use std::fmt;
 use std::sync::Arc;
@@ -5,11 +9,23 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Mutex;
 
+use amqprs::{
+    callbacks::{ChannelCallback, ConnectionCallback},
+    channel::Channel,
+    connection::{Connection, OpenConnectionArguments},
+    Close,
+};
+
+type Result<T> = std::result::Result<T, amqprs::error::Error>;
 
 /// Command send to the async worker that holds the connection
 enum ClientCommand {
+    /// Cancel the async worker task
     Cancel,
+    /// dummy function for test purposes
     Dummy(i32),
+    /// reconnect to the Broker
+    ReConnect,
 }
 
 impl fmt::Display for ClientCommand {
@@ -17,42 +33,109 @@ impl fmt::Display for ClientCommand {
         match self {
             ClientCommand::Cancel => write!(f, "Cancel"),
             ClientCommand::Dummy(i) => write!(f, "Dummy({})", i),
+            ClientCommand::ReConnect => write!(f, "Reconnect"),
         }
     }
 }
 
-/// Response of the command that was send to the async worker
+/// Response of the command that was send to the async worker. Every element of
+/// this enum ia a counterpart to one ClientCommand value
 enum ClientCommandResponse {
+    /// sent in response of a cancel request
     CancelResponse(std::result::Result<(), String>),
+    /// sent in response of a dummy function call
     DummyResponse(std::result::Result<i32, String>),
 }
 
-
-struct RabbitClientCont {
-    tx_req: Sender<ClientCommand>,
-    rx_resp: Receiver<ClientCommandResponse>,
+/// Container for the connection parameters for the broker connection
+#[derive(Debug, Clone, Default)]
+pub struct RabbitConParams {
+    /// Server name or IP address to connect to
+    pub server: String,
+    /// Port of the RabbitMq server
+    pub port: u16,
+    /// User used for authentication
+    pub user: String,
+    /// Password used for authentication
+    pub password: String,
 }
 
+/// Internal content of the RabbitClient
+struct RabbitClientCont {
+    /// connection parameters
+    con_params: Option<RabbitConParams>,
+    /// a sender to inform the host of the client that the client wants to panic
+    tx_panic: Option<Sender<String>>,
+    /// maximal number of reconnects in case of connection issues
+    max_reconnect_attempts: u8,
+    /// internal Sender to inform the parallel RabbitCient worker, to execute a task
+    tx_req: Sender<ClientCommand>,
+    /// internal Receiver to read possible Response from the parallel RabbitClient worker
+    rx_resp: Receiver<ClientCommandResponse>,
+    /// Connection object to RabbitMq server
+    connection: Option<Connection>,
+}
+
+/// Internal structure to implement the connection callback for the RabbitMq Connection
+struct RabbitConCallback {
+    /// Sender to request a new connection from the RabbitMq client worker
+    tx_req: Sender<ClientCommand>,
+}
+
+
+#[async_trait::async_trait]
+impl ConnectionCallback for RabbitConCallback {
+    async fn close(&mut self, _: &Connection, _: Close) -> Result<()> {
+        info!("connection was closed");
+
+        if let Err(e) = self.tx_req.send(ClientCommand::ReConnect).await {
+            error!(
+                "error while notify about closed connection: {}",
+                e.to_string()
+            )
+        }
+        Ok(())
+    }
+
+    async fn blocked(&mut self, _: &Connection, _: String) {
+        debug!("connection is blocked")
+    }
+    async fn unblocked(&mut self, _: &Connection) {
+        debug!("connection is unblocked")
+    }
+}
+
+
+/// RabbitMq client wrapper
 #[derive(Clone)]
 pub struct RabbitClient {
     mutex: Arc<Mutex<RabbitClientCont>>,
 }
 
 impl RabbitClient {
-    pub async fn new() -> RabbitClient {
+    pub async fn new(
+        con_params: Option<RabbitConParams>,
+        tx_panic: Option<Sender<String>>,
+        max_reconnect_attempts: u8,
+    ) -> RabbitClient {
         let (tx_req, rx_req): (Sender<ClientCommand>, Receiver<ClientCommand>) = mpsc::channel(1);
         let (tx_resp, rx_resp): (Sender<ClientCommandResponse>, Receiver<ClientCommandResponse>) = mpsc::channel(1);
-        RabbitClient::start_management_task(rx_req,tx_resp);
         let c = RabbitClientCont {
             tx_req: tx_req,
             rx_resp: rx_resp,
+            connection: None,
+            tx_panic: tx_panic,
+            max_reconnect_attempts: max_reconnect_attempts,
+            con_params: con_params,
         };
-        RabbitClient {
+        let ret = RabbitClient {
             mutex: Arc::new(Mutex::new(c)),
-        }
+        };
+        RabbitClient::start_management_task(rx_req,tx_resp, ret.clone());
+        return ret;
     }
 
-    fn start_management_task(mut rx_req: Receiver<ClientCommand>, tx_resp: Sender<ClientCommandResponse>) {
+    fn start_management_task(mut rx_req: Receiver<ClientCommand>, tx_resp: Sender<ClientCommandResponse>,mut rabbit_client: RabbitClient) {
         tokio::spawn(async move {
             while let Some(cc) = rx_req.recv().await {
                 debug!("receive client command: {}", cc);
@@ -62,6 +145,7 @@ impl RabbitClient {
                         RabbitClient::handle_cancel_cmd(&tx_resp).await;
                         break;
                     },
+                    ClientCommand::ReConnect => RabbitClient::handle_connect(&tx_resp, &mut rabbit_client).await,
                 }
             }
         });
@@ -127,6 +211,11 @@ impl RabbitClient {
             }
         }
     }
+
+    async fn handle_connect(tx_resp: &Sender<ClientCommandResponse>, rabbit_client: &mut RabbitClient) {
+        let mut guard = rabbit_client.mutex.lock().await;
+
+    }
 }
 
 #[cfg(test)]
@@ -138,7 +227,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn dummy() {
-        let mut client = rabbitclient::RabbitClient::new().await;
+        let mut client = rabbitclient::RabbitClient::new(None, None, 0).await;
         let dummy_input = 13;
         let dummy_result = client.dummy(dummy_input).await.unwrap();
 
@@ -164,7 +253,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn multi_thread_dummy() {
         let (tx_err,rx_err): (Sender<(i32, i32)>, Receiver<(i32, i32)>) = mpsc::channel();
-        let mut client: rabbitclient::RabbitClient = rabbitclient::RabbitClient::new().await;
+        let mut client: rabbitclient::RabbitClient = rabbitclient::RabbitClient::new(None, None, 0).await;
 
         let task1_handle = tokio::spawn(task(14, client.clone(),tx_err.clone()));
         let task2_handle = tokio::spawn(task(28, client.clone(),tx_err.clone()));

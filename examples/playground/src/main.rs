@@ -28,7 +28,7 @@ fn main() {
         .build()
         .unwrap()
         .block_on( async {
-            let mut client: rabbitclient::RabbitClient = rabbitclient::RabbitClient::new().await;
+            let mut client: rabbitclient::RabbitClient = rabbitclient::RabbitClient::new(None,None, 0).await;
 
             let task1_handle = tokio::spawn(task(14, client.clone()));
             let task2_handle = tokio::spawn(task(28, client.clone()));
