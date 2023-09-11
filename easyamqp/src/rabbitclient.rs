@@ -3,7 +3,7 @@
 //! factory to create internally the needed connection objects. In addition it is used the
 //! create workers on the connection that can be used for publishing and subscribing of data.
 use log::{debug, error, info};
-use std::fmt;
+use std::{thread, time, fmt};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -25,7 +25,7 @@ enum ClientCommand {
     /// dummy function for test purposes
     Dummy(i32),
     /// reconnect to the Broker
-    ReConnect,
+    Connect,
 }
 
 impl fmt::Display for ClientCommand {
@@ -33,7 +33,7 @@ impl fmt::Display for ClientCommand {
         match self {
             ClientCommand::Cancel => write!(f, "Cancel"),
             ClientCommand::Dummy(i) => write!(f, "Dummy({})", i),
-            ClientCommand::ReConnect => write!(f, "Reconnect"),
+            ClientCommand::Connect => write!(f, "Reconnect"),
         }
     }
 }
@@ -74,9 +74,13 @@ struct RabbitClientCont {
     rx_resp: Receiver<ClientCommandResponse>,
     /// Connection object to RabbitMq server
     connection: Option<Connection>,
+    // callback instance that's triggered when the connection is closed
+    con_callback: RabbitConCallback,
 }
 
 /// Internal structure to implement the connection callback for the RabbitMq Connection
+#[derive(Debug, Clone)]
+
 struct RabbitConCallback {
     /// Sender to request a new connection from the RabbitMq client worker
     tx_req: Sender<ClientCommand>,
@@ -88,7 +92,7 @@ impl ConnectionCallback for RabbitConCallback {
     async fn close(&mut self, _: &Connection, _: Close) -> Result<()> {
         info!("connection was closed");
 
-        if let Err(e) = self.tx_req.send(ClientCommand::ReConnect).await {
+        if let Err(e) = self.tx_req.send(ClientCommand::Connect).await {
             error!(
                 "error while notify about closed connection: {}",
                 e.to_string()
@@ -121,12 +125,13 @@ impl RabbitClient {
         let (tx_req, rx_req): (Sender<ClientCommand>, Receiver<ClientCommand>) = mpsc::channel(1);
         let (tx_resp, rx_resp): (Sender<ClientCommandResponse>, Receiver<ClientCommandResponse>) = mpsc::channel(1);
         let c = RabbitClientCont {
-            tx_req: tx_req,
+            tx_req: tx_req.clone(),
             rx_resp: rx_resp,
             connection: None,
             tx_panic: tx_panic,
             max_reconnect_attempts: max_reconnect_attempts,
             con_params: con_params,
+            con_callback: RabbitConCallback { tx_req: tx_req.clone() }
         };
         let ret = RabbitClient {
             mutex: Arc::new(Mutex::new(c)),
@@ -145,7 +150,7 @@ impl RabbitClient {
                         RabbitClient::handle_cancel_cmd(&tx_resp).await;
                         break;
                     },
-                    ClientCommand::ReConnect => RabbitClient::handle_connect(&tx_resp, &mut rabbit_client).await,
+                    ClientCommand::Connect => RabbitClient::handle_connect(&tx_resp, &mut rabbit_client).await,
                 }
             }
         });
@@ -188,6 +193,16 @@ impl RabbitClient {
         } 
     }
 
+    pub async fn connect(&mut self) -> std::result::Result<(), String>{
+        let mut guard = self.mutex.lock().await;
+        let c: &mut RabbitClientCont = &mut *guard;
+        if c.tx_req.send(ClientCommand::Connect).await.is_err() {
+            let msg = "error while sending cancel request";
+            error!("{}", msg);
+            return Err(msg.to_string());
+        }
+        Ok(())
+    }
 
     async fn handle_dummy_cmd(i: i32, tx_resp: &Sender<ClientCommandResponse>) {
         info!("received dummy: {}", i);
@@ -212,9 +227,80 @@ impl RabbitClient {
         }
     }
 
+    async fn do_connect(c: &mut RabbitClientCont) -> std::result::Result<(), String> {
+        let con_params: &RabbitConParams = c.con_params.as_mut().unwrap();
+            match Connection::open(&OpenConnectionArguments::new(
+                &con_params.server,
+                con_params.port,
+                &con_params.user,
+                &con_params.password,
+            ))
+            .await
+            {
+                Ok(connection) => {
+                    info!("connection established :)");
+                    connection
+                        .register_callback(c.con_callback.clone())
+                        .await
+                        .unwrap();
+                    info!("???: {}", connection.is_open());
+                    c.connection = Some(connection);
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("connection failure :(");
+                    Err(e.to_string())
+                }
+            }
+    }
+
+    async fn do_panic(c: &mut RabbitClientCont, msg: &str) {
+        if c.tx_panic.is_some() {
+            let pannic_channel: Sender<String> = c.tx_panic.clone().unwrap();
+            if let Err(se) = pannic_channel.send(msg.to_string()).await {
+                error!("error while sending panic request: {}", se.to_string());
+                panic!("{}", msg);
+            }
+        } else {
+            panic!("{}", msg);
+        };
+    }
+
     async fn handle_connect(tx_resp: &Sender<ClientCommandResponse>, rabbit_client: &mut RabbitClient) {
         let mut guard = rabbit_client.mutex.lock().await;
+        let c: &mut RabbitClientCont = &mut *guard;
+        let mut reconnect_seconds = 1;
+        let mut reconnect_attempts: u8 = 0;
+        if c.con_params.is_none() {
+            let msg = "RabbitClient object isn't proper initialized. Missing rabbit connection params";
+            error!("{}", msg);
+            RabbitClient::do_panic(c, msg).await;
+            return;
+        }
+        if c.connection.is_some() && c.connection.as_ref().unwrap().is_open() {
+            info!("should connect, but connection is already open");
+            return;
+        }
 
+        loop {
+            if let Err(e) = RabbitClient::do_connect(c).await {
+                error!("error while trying to connect: {}", e.to_string());
+                let sleep_time = time::Duration::from_secs(reconnect_seconds);
+                info!("sleep for {} seconds before try to reconnect ...", reconnect_seconds);
+                thread::sleep(sleep_time);
+                reconnect_seconds = reconnect_seconds * 2;
+                reconnect_attempts += 1;
+                if reconnect_attempts > c.max_reconnect_attempts {
+                    error!("reached maximum reconnection attempts ({}), and stop trying", reconnect_attempts);
+                    let msg = "reached maximum reconnection attempts";
+                    error!("{}", msg);
+                    RabbitClient::do_panic(c, msg).await;
+                    return;
+                }
+            } else {
+                break;
+            }
+        }    
     }
 }
 
