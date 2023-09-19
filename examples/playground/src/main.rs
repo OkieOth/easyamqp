@@ -139,7 +139,7 @@ async fn main_channel() {
 
     let (tx_panic, mut rx_panic): (Sender<String>, Receiver<String>) = mpsc::channel(1);
     let mra = 3;
-    let mut client: rabbitclient::RabbitClient = rabbitclient::RabbitClient::new(con_params,Some(tx_panic), mra).await;
+    let mut client: rabbitclient::RabbitClient = rabbitclient::RabbitClient::new_with_name("playground".to_string(), con_params,Some(tx_panic), mra).await;
 
     let _ = client.connect().await;
 
