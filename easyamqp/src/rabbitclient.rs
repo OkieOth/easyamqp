@@ -13,7 +13,7 @@ use amqprs::{
     callbacks::{ChannelCallback, ConnectionCallback},
     channel::Channel,
     connection::{Connection, OpenConnectionArguments},
-    Close,
+    Ack, BasicProperties, Cancel, Close, CloseChannel, Nack, Return,
 };
 
 type Result<T> = std::result::Result<T, amqprs::error::Error>;
@@ -46,26 +46,36 @@ struct RabbitClientApiCont {
     rx_resp: Receiver<ClientCommandResponse>,
 }
 
+struct RabbitWorkerCont {
+    channel: Option<Channel>,
+    callback: RabbitChannelCallback,
+}
+
 pub struct RabbitWorker {
     pub id: i32,
-    tx_req: Sender<ClientCommand>,
-    pub channel_mutex: Arc<Mutex<Option<Channel>>>,
+    cont_mutex: Arc<Mutex<RabbitWorkerCont>>,
 }
 
 impl RabbitWorker {
     pub async fn get_state(&self) -> (bool, bool, bool) {
-        match self.channel_mutex.lock().await.as_ref() {
+        let mut guard = self.cont_mutex.lock().await;
+        let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+        let o = worker_cont.channel.as_ref();
+        match o {
             Some(x) => {
                 (true, x.is_connection_open(), x.is_open())
             },
-            None => (false, false, false)
+            None => {
+                (false, false, false)
+            }
         }
     }
 }
 
 struct RabbitWorkerHandle {
     id: i32,
-    channel_mutex: Arc<Mutex<Option<Channel>>>,
+    tx_req: Sender<ClientCommand>,
+    cont_mutex: Arc<Mutex<RabbitWorkerCont>>,
 }
 
 
@@ -145,6 +155,35 @@ impl ConnectionCallback for RabbitConCallback {
         debug!("connection is unblocked")
     }
 }
+
+struct RabbitChannelCallback {
+    /// Sender to request a new connection from the RabbitMq client worker
+    tx_req: Sender<ClientCommand>,
+}
+
+#[async_trait::async_trait]
+impl ChannelCallback for RabbitChannelCallback {
+    async fn close(&mut self, channel: &Channel, close: CloseChannel) -> Result<()> {
+        Ok(())
+    }
+    async fn cancel(&mut self, channel: &Channel, cancel: Cancel) -> Result<()> {
+        Ok(())
+    }
+    async fn flow(&mut self, channel: &Channel, active: bool) -> Result<bool> {
+        Ok(true)
+    }
+    async fn publish_ack(&mut self, channel: &Channel, ack: Ack) {}
+    async fn publish_nack(&mut self, channel: &Channel, nack: Nack) {}
+    async fn publish_return(
+        &mut self,
+        channel: &Channel,
+        ret: Return,
+        basic_properties: BasicProperties,
+        content: Vec<u8>,
+    ) {
+    }
+}
+
 
 
 /// RabbitMq client wrapper
@@ -354,8 +393,9 @@ impl RabbitClient {
 
     async fn reset_channels_in_workers(workers: &mut Vec<RabbitWorkerHandle>) {
         for w in workers.iter() {
-            let mut channel_mutex = w.channel_mutex.lock().await;
-            *channel_mutex = None;
+            let mut guard = w.cont_mutex.lock().await;
+            let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+            worker_cont.channel = None;
         }
     }
 
@@ -366,11 +406,16 @@ impl RabbitClient {
         }
         let conn = connection.as_ref().unwrap();
         for w in workers.iter() {
-            let mut channel_mutex = w.channel_mutex.lock().await;
-            if channel_mutex.is_none() {
+            let mut guard = w.cont_mutex.lock().await;
+            let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+            if worker_cont.channel.is_none() {
                 match conn.open_channel(None).await {
                     Ok(channel) => {
-                        *channel_mutex = Some(channel);
+                        // channel
+                        //     .register_callback(self.channel_callback.clone())
+                        //     .await
+                        //     .unwrap();
+                            worker_cont.channel = Some(channel);
                     },
                     Err(e) => {
                         error!("error while creating channel for worker={}: {}", w.id, e.to_string());
@@ -434,16 +479,19 @@ impl RabbitClient {
                 // try to create the channel
                 let conn = c.connection.as_ref().unwrap();
 
-
+                let worker_cont = RabbitWorkerCont {
+                    channel: None,
+                    callback: RabbitChannelCallback { tx_req: c.tx_req.clone() }
+                };
                 let worker = RabbitWorker {
                     id: i,
-                    tx_req: c.tx_req.clone(),
-                    channel_mutex: Arc::new(Mutex::new(None)),
+                    cont_mutex: Arc::new(Mutex::new(worker_cont)),
                 };
 
                 let worker_handle = RabbitWorkerHandle {
                     id: i,
-                    channel_mutex: worker.channel_mutex.clone(),
+                    tx_req: c.tx_req.clone(),
+                    cont_mutex: worker.cont_mutex.clone(),
                 };
 
                 c.workers.push(worker_handle);
@@ -451,7 +499,9 @@ impl RabbitClient {
                 match conn.open_channel(None).await {
                     Ok(channel) => {
                         {
-                            let _ = worker.channel_mutex.lock().await.insert(channel);
+                            let mut guard = worker.cont_mutex.lock().await;
+                            let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+                            worker_cont.channel = Some(channel);
                         }
                         match tx_resp.send(ClientCommandResponse::GetWorkerRespone(Ok(worker))).await {
                             Ok(_) => {
