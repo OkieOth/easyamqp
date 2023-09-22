@@ -6,5 +6,6 @@ rabbitmqadmin --username guest --password guest list connections -f pretty_json
 
 jq '.[] | select(.client_properties.connection_name == "playground") | .name' 
 
+rabbitmqadmin --username guest --password guest close connection name="172.31.0.1:51752 -> 172.31.0.2:5672"
 
 ```
