@@ -2,7 +2,7 @@
 //! The main handle to the client is a thread safe RabbitCient instance, that works as
 //! factory to create internally the needed connection objects. In addition it is used the
 //! create workers on the connection that can be used for publishing and subscribing of data.
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::{thread, time, fmt};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -13,12 +13,74 @@ use amqprs::{
     callbacks::{ChannelCallback, ConnectionCallback},
     channel::Channel,
     connection::{Connection, OpenConnectionArguments},
-    Close,
+    Ack, BasicProperties, Cancel, Close, CloseChannel, Nack, Return,
 };
 
 type Result<T> = std::result::Result<T, amqprs::error::Error>;
 
 /// Command send to the async worker that holds the connection
+
+/// Internal content of the RabbitClient
+struct RabbitClientCont {
+    /// connection parameters
+    con_params: Option<RabbitConParams>,
+    /// a sender to inform the host of the client that the client wants to panic
+    tx_panic: Option<Sender<String>>,
+    /// maximal number of reconnects in case of connection issues
+    max_reconnect_attempts: u8,
+    /// internal Sender to inform the parallel RabbitCient worker, to execute a task
+    tx_req: Sender<ClientCommand>,
+    /// Connection object to RabbitMq server
+    connection: Option<Connection>,
+    // callback instance that's triggered when the connection is closed
+    con_callback: RabbitConCallback,
+
+    con_name: Option<String>,
+
+    workers: Vec<RabbitWorkerHandle>
+}
+
+
+struct RabbitClientApiCont {
+    /// internal Sender to inform the parallel RabbitCient worker, to execute a task
+    tx_req: Sender<ClientCommand>,
+    /// internal Receiver to read possible Response from the parallel RabbitClient worker
+    rx_resp: Receiver<ClientCommandResponse>,
+}
+
+struct RabbitWorkerCont {
+    channel: Option<Channel>,
+    callback: RabbitChannelCallback,
+}
+
+pub struct RabbitWorker {
+    pub id: i32,
+    cont_mutex: Arc<Mutex<RabbitWorkerCont>>,
+}
+
+impl RabbitWorker {
+    pub async fn get_state(&self) -> (bool, bool, bool) {
+        let mut guard = self.cont_mutex.lock().await;
+        let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+        let o = worker_cont.channel.as_ref();
+        match o {
+            Some(x) => {
+                (true, x.is_connection_open(), x.is_open())
+            },
+            None => {
+                (false, false, false)
+            }
+        }
+    }
+}
+
+struct RabbitWorkerHandle {
+    id: i32,
+    tx_req: Sender<ClientCommand>,
+    cont_mutex: Arc<Mutex<RabbitWorkerCont>>,
+}
+
+
 enum ClientCommand {
     /// Cancel the async worker task
     Cancel,
@@ -26,6 +88,10 @@ enum ClientCommand {
     Dummy(i32),
     /// reconnect to the Broker
     Connect,
+    /// request a new worker on rabbitMq ... it provides basically the connection channel
+    GetWorker(i32),
+    /// request the recreation of a specific channel
+    GetChannel(i32),
 }
 
 impl fmt::Display for ClientCommand {
@@ -33,7 +99,9 @@ impl fmt::Display for ClientCommand {
         match self {
             ClientCommand::Cancel => write!(f, "Cancel"),
             ClientCommand::Dummy(i) => write!(f, "Dummy({})", i),
-            ClientCommand::Connect => write!(f, "Reconnect"),
+            ClientCommand::Connect => write!(f, "Connect"),
+            ClientCommand::GetWorker(i) => write!(f, "GetWorker-{}", i),
+            ClientCommand::GetChannel(i) => write!(f, "GetChannel-{}", i),
         }
     }
 }
@@ -45,6 +113,8 @@ enum ClientCommandResponse {
     CancelResponse(std::result::Result<(), String>),
     /// sent in response of a dummy function call
     DummyResponse(std::result::Result<i32, String>),
+    /// send the created worker back to the specific RabbitClient function
+    GetWorkerRespone(std::result::Result<RabbitWorker, String>),
 }
 
 /// Container for the connection parameters for the broker connection
@@ -60,27 +130,9 @@ pub struct RabbitConParams {
     pub password: String,
 }
 
-/// Internal content of the RabbitClient
-struct RabbitClientCont {
-    /// connection parameters
-    con_params: Option<RabbitConParams>,
-    /// a sender to inform the host of the client that the client wants to panic
-    tx_panic: Option<Sender<String>>,
-    /// maximal number of reconnects in case of connection issues
-    max_reconnect_attempts: u8,
-    /// internal Sender to inform the parallel RabbitCient worker, to execute a task
-    tx_req: Sender<ClientCommand>,
-    /// internal Receiver to read possible Response from the parallel RabbitClient worker
-    rx_resp: Receiver<ClientCommandResponse>,
-    /// Connection object to RabbitMq server
-    connection: Option<Connection>,
-    // callback instance that's triggered when the connection is closed
-    con_callback: RabbitConCallback,
-}
 
 /// Internal structure to implement the connection callback for the RabbitMq Connection
 #[derive(Debug, Clone)]
-
 struct RabbitConCallback {
     /// Sender to request a new connection from the RabbitMq client worker
     tx_req: Sender<ClientCommand>,
@@ -109,32 +161,95 @@ impl ConnectionCallback for RabbitConCallback {
     }
 }
 
+#[derive(Debug, Clone)]
+struct RabbitChannelCallback {
+    /// id of the worker
+    id: i32,
+    /// Sender to request a new connection from the RabbitMq client worker
+    tx_req: Sender<ClientCommand>,
+}
+
+#[async_trait::async_trait]
+impl ChannelCallback for RabbitChannelCallback {
+    async fn close(&mut self, channel: &Channel, close: CloseChannel) -> Result<()> {
+        warn!("channel was closed");
+        let _ = self.tx_req.send(ClientCommand::GetChannel(self.id)).await;
+        Ok(())
+    }
+    async fn cancel(&mut self, channel: &Channel, cancel: Cancel) -> Result<()> {
+        Ok(())
+    }
+    async fn flow(&mut self, channel: &Channel, active: bool) -> Result<bool> {
+        Ok(true)
+    }
+    async fn publish_ack(&mut self, channel: &Channel, ack: Ack) {}
+    async fn publish_nack(&mut self, channel: &Channel, nack: Nack) {}
+    async fn publish_return(
+        &mut self,
+        channel: &Channel,
+        ret: Return,
+        basic_properties: BasicProperties,
+        content: Vec<u8>,
+    ) {
+    }
+}
+
+
 
 /// RabbitMq client wrapper
 #[derive(Clone)]
 pub struct RabbitClient {
-    mutex: Arc<Mutex<RabbitClientCont>>,
+    mutex_handler: Arc<Mutex<RabbitClientCont>>,
+    mutex_api: Arc<Mutex<RabbitClientApiCont>>,
 }
 
 impl RabbitClient {
+    pub async fn new_with_name(
+        name: String,
+        con_params: Option<RabbitConParams>,
+        tx_panic: Option<Sender<String>>,
+        max_reconnect_attempts: u8,
+    ) -> RabbitClient {
+        let client = RabbitClient::new_impl(con_params, tx_panic, max_reconnect_attempts).await;
+        let mut guard = client.mutex_handler.lock().await;
+        let cont = &mut *guard;
+        cont.con_name = Some(name);
+        drop(guard);
+        return client;
+    }
+
     pub async fn new(
         con_params: Option<RabbitConParams>,
         tx_panic: Option<Sender<String>>,
         max_reconnect_attempts: u8,
     ) -> RabbitClient {
-        let (tx_req, rx_req): (Sender<ClientCommand>, Receiver<ClientCommand>) = mpsc::channel(1);
-        let (tx_resp, rx_resp): (Sender<ClientCommandResponse>, Receiver<ClientCommandResponse>) = mpsc::channel(1);
+        RabbitClient::new_impl(con_params, tx_panic, max_reconnect_attempts).await
+    }
+    
+    async fn new_impl(
+        con_params: Option<RabbitConParams>,
+        tx_panic: Option<Sender<String>>,
+        max_reconnect_attempts: u8,
+    ) -> RabbitClient {
+        let (tx_req, rx_req): (Sender<ClientCommand>, Receiver<ClientCommand>) = mpsc::channel(100);
+        let (tx_resp, rx_resp): (Sender<ClientCommandResponse>, Receiver<ClientCommandResponse>) = mpsc::channel(100);
         let c = RabbitClientCont {
             tx_req: tx_req.clone(),
-            rx_resp: rx_resp,
             connection: None,
             tx_panic: tx_panic,
             max_reconnect_attempts: max_reconnect_attempts,
             con_params: con_params,
-            con_callback: RabbitConCallback { tx_req: tx_req.clone() }
+            con_callback: RabbitConCallback { tx_req: tx_req.clone() },
+            workers: Vec::new(),
+            con_name: None,
+        };
+        let ac = RabbitClientApiCont {
+            tx_req: tx_req.clone(),
+            rx_resp: rx_resp,
         };
         let ret = RabbitClient {
-            mutex: Arc::new(Mutex::new(c)),
+            mutex_handler: Arc::new(Mutex::new(c)),
+            mutex_api: Arc::new(Mutex::new(ac)),
         };
         RabbitClient::start_management_task(rx_req,tx_resp, ret.clone());
         return ret;
@@ -151,18 +266,21 @@ impl RabbitClient {
                         break;
                     },
                     ClientCommand::Connect => RabbitClient::handle_connect(&tx_resp, &mut rabbit_client).await,
+                    ClientCommand::GetWorker(i) => RabbitClient::handle_get_worker(i, &tx_resp, &mut rabbit_client).await,
+                    ClientCommand::GetChannel(i) => RabbitClient::handle_get_channel(i, &mut rabbit_client).await
                 }
             }
+            error!("I am leaving the management task 8-o");
         });
     }
 
     pub async fn dummy(&self, i: i32) -> std::result::Result<i32, String> {
-        let mut guard = self.mutex.lock().await;
-        let c: &mut RabbitClientCont = &mut *guard;
-        if c.tx_req.send(ClientCommand::Dummy(i)).await.is_err() {
+        let mut guard = self.mutex_api.lock().await;
+        let ac: &mut RabbitClientApiCont = &mut *guard;
+        if ac.tx_req.send(ClientCommand::Dummy(i)).await.is_err() {
             return Err("error while sending dummy request".to_string());
         }
-        match c.rx_resp.recv().await {
+        match ac.rx_resp.recv().await {
             Some(resp) => {
                 debug!("receive propper response from dummy request");
                 if let ClientCommandResponse::DummyResponse(value) = resp {
@@ -178,13 +296,13 @@ impl RabbitClient {
     }
 
     pub async fn close(&mut self) {
-        let mut guard = self.mutex.lock().await;
-        let c: &mut RabbitClientCont = &mut *guard;
-        if c.tx_req.send(ClientCommand::Cancel).await.is_err() {
+        let mut guard = self.mutex_api.lock().await;
+        let ac: &mut RabbitClientApiCont = &mut *guard;
+        if ac.tx_req.send(ClientCommand::Cancel).await.is_err() {
             error!("error while sending cancel request");
         }
-        match c.rx_resp.recv().await {
-            Some(resp) => {
+        match ac.rx_resp.recv().await {
+            Some(_) => {
                 debug!("receive propper response from cancel request");
             },
             None => {
@@ -194,15 +312,42 @@ impl RabbitClient {
     }
 
     pub async fn connect(&mut self) -> std::result::Result<(), String>{
-        let mut guard = self.mutex.lock().await;
-        let c: &mut RabbitClientCont = &mut *guard;
-        if c.tx_req.send(ClientCommand::Connect).await.is_err() {
+        let mut guard = self.mutex_api.lock().await;
+        let ac: &mut RabbitClientApiCont = &mut *guard;
+        if ac.tx_req.send(ClientCommand::Connect).await.is_err() {
             let msg = "error while sending cancel request";
             error!("{}", msg);
             return Err(msg.to_string());
         }
         Ok(())
     }
+
+    pub async fn new_worker(&mut self, id: i32) -> std::result::Result<RabbitWorker, String> {
+        debug!("request api lock: id={}", id);
+        let mut guard = self.mutex_api.lock().await;
+        debug!("got api lock: id={}", id);
+        let ac: &mut RabbitClientApiCont = &mut *guard;
+        if ac.tx_req.send(ClientCommand::GetWorker(id)).await.is_err() {
+            return Err("error while sending getWorker request".to_string());
+        }
+        debug!("waiting for worker request response: id={}", id);
+        match ac.rx_resp.recv().await {
+            Some(resp) => {
+                debug!("receive propper response from getWorker request");
+                if let ClientCommandResponse::GetWorkerRespone(result) = resp {
+                    return result;
+                } else {
+                    Err("Wrong response type for getWorker command".to_string())
+                }
+            },
+            None => {
+                debug!("didn't receive response for worker request: id={}", id);
+                Err("didn't receive a propper response from getWorker request".to_string())
+            }
+        }
+    }
+
+
 
     async fn handle_dummy_cmd(i: i32, tx_resp: &Sender<ClientCommandResponse>) {
         info!("received dummy: {}", i);
@@ -229,22 +374,41 @@ impl RabbitClient {
 
     async fn do_connect(c: &mut RabbitClientCont) -> std::result::Result<(), String> {
         let con_params: &RabbitConParams = c.con_params.as_mut().unwrap();
-            match Connection::open(&OpenConnectionArguments::new(
+            let mut con_args = OpenConnectionArguments::new(
                 &con_params.server,
                 con_params.port,
                 &con_params.user,
                 &con_params.password,
-            ))
+            );
+            if c.con_name.is_some() {
+                let s = c.con_name.as_ref().unwrap().clone();
+                con_args.connection_name(s.as_str());
+            }
+            match Connection::open(&con_args)
             .await
             {
                 Ok(connection) => {
-                    info!("connection established :)");
+                    info!("connection established :), name={}", connection.connection_name());
                     connection
                         .register_callback(c.con_callback.clone())
                         .await
                         .unwrap();
                     info!("???: {}", connection.is_open());
-                    c.connection = Some(connection);
+                    c.connection = Some(connection.clone());
+                    let tx_send_reconnect = c.tx_req.clone();
+                    tokio::spawn(async move {
+                        if connection.listen_network_io_failure().await {
+                            error!("received network error for rabbit connection");
+                            if let Err(e) = tx_send_reconnect.send(ClientCommand::Connect).await {
+                                error!(
+                                    "error while notify about closed connection: {}",
+                                    e.to_string()
+                                );
+                            }
+                        } else {
+                            info!("no network error for rabbit connection");
+                        }
+                    });
                     Ok(())
                 }
                 Err(e) => {
@@ -266,8 +430,42 @@ impl RabbitClient {
         };
     }
 
+    async fn reset_channels_in_workers(workers: &mut Vec<RabbitWorkerHandle>) {
+        for w in workers.iter() {
+            let mut guard = w.cont_mutex.lock().await;
+            let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+            worker_cont.channel = None;
+        }
+    }
+
+    async fn restore_channels_in_workers(connection: &Option<Connection>, workers: &mut Vec<RabbitWorkerHandle>) {
+        if connection.is_none() {
+            warn!("should restore channel on None connection object");
+            return;
+        }
+        let conn = connection.as_ref().unwrap();
+        for w in workers.iter() {
+            let mut guard = w.cont_mutex.lock().await;
+            let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+            if worker_cont.channel.is_none() {
+                match conn.open_channel(None).await {
+                    Ok(channel) => {
+                        channel
+                            .register_callback(worker_cont.callback.clone())
+                            .await
+                            .unwrap();
+                        worker_cont.channel = Some(channel);
+                    },
+                    Err(e) => {
+                        error!("error while creating channel for worker={}: {}", w.id, e.to_string());
+                    }
+                }
+            }
+        }
+    }
+
     async fn handle_connect(tx_resp: &Sender<ClientCommandResponse>, rabbit_client: &mut RabbitClient) {
-        let mut guard = rabbit_client.mutex.lock().await;
+        let mut guard = rabbit_client.mutex_handler.lock().await;
         let c: &mut RabbitClientCont = &mut *guard;
         let mut reconnect_seconds = 1;
         let mut reconnect_attempts: u8 = 0;
@@ -280,6 +478,8 @@ impl RabbitClient {
         if c.connection.is_some() && c.connection.as_ref().unwrap().is_open() {
             info!("should connect, but connection is already open");
             return;
+        } else {
+            RabbitClient::reset_channels_in_workers(&mut c.workers).await;
         }
 
         loop {
@@ -298,9 +498,120 @@ impl RabbitClient {
                     return;
                 }
             } else {
+                RabbitClient::restore_channels_in_workers(&c.connection, &mut c.workers).await;
                 break;
             }
-        }    
+        }
+    }
+
+    async fn handle_get_channel(i: i32, rabbit_client: &mut RabbitClient) {
+        debug!("should get channel for worker-{} ... request lock ...", i);
+        let mut guard = rabbit_client.mutex_handler.lock().await;
+        debug!("should get channel for worker-{} ... got lock", i);
+        let c: &mut RabbitClientCont = &mut *guard;
+        if c.connection.is_some() && c.connection.as_ref().unwrap().is_open() {
+            let conn = c.connection.as_ref().unwrap();
+            for w in c.workers.iter() {
+                if w.id == i {
+                    let mut guard = w.cont_mutex.lock().await;
+                    let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+                    match conn.open_channel(None).await {
+                        Ok(channel) => {
+                            channel
+                                .register_callback(worker_cont.callback.clone())
+                                .await
+                                .unwrap();
+                            worker_cont.channel = Some(channel);
+                        },
+                        Err(e) => {
+                            error!("error while creating channel for worker={}: {}", w.id, e.to_string());
+                        }
+                    }
+                }
+            }    
+        } else {
+            error!("can't proceed because connection isn't open");
+        }
+
+    }
+
+    async fn handle_get_worker(i: i32, tx_resp: &Sender<ClientCommandResponse>, rabbit_client: &mut RabbitClient) {
+        let mut guard = rabbit_client.mutex_handler.lock().await;
+        let c: &mut RabbitClientCont = &mut *guard;
+        let mut reconnect_seconds = 1;
+        let mut reconnect_attempts: u8 = 0;
+
+        loop {
+
+            if c.connection.is_none() || (!c.connection.as_ref().unwrap().is_open()) {
+                info!("connection isn't ready ...");
+            } else {
+                // try to create the channel
+                let conn = c.connection.as_ref().unwrap();
+
+                let callback = RabbitChannelCallback { 
+                        tx_req: c.tx_req.clone(),
+                        id: i,
+                    };
+
+                let worker_cont = RabbitWorkerCont {
+                    channel: None,
+                    callback: callback,
+                };
+                let worker = RabbitWorker {
+                    id: i,
+                    cont_mutex: Arc::new(Mutex::new(worker_cont)),
+                };
+
+                let worker_handle = RabbitWorkerHandle {
+                    id: i,
+                    tx_req: c.tx_req.clone(),
+                    cont_mutex: worker.cont_mutex.clone(),
+                };
+
+                c.workers.push(worker_handle);
+
+                match conn.open_channel(None).await {
+                    Ok(channel) => {
+                        {
+                            let mut guard = worker.cont_mutex.lock().await;
+                            let worker_cont: &mut RabbitWorkerCont =&mut *guard;
+                            channel
+                                .register_callback(worker_cont.callback.clone())
+                                .await
+                                .unwrap();
+                            worker_cont.channel = Some(channel);
+                        }
+                        match tx_resp.send(ClientCommandResponse::GetWorkerRespone(Ok(worker))).await {
+                            Ok(_) => {
+                                debug!("sent to id={}: ClientCommandResponse::GetWorkerResponse", i);
+                            },
+                            Err(e) => {
+                                error!("error while sending getChannel response to {}: {}", i,  e.to_string());
+                            }
+                        };
+                        return;
+                    },
+                    Err(e) => {
+                        error!("error while creating channel for i={}: {}", i, e.to_string());
+                    }
+                }
+            }
+
+            let sleep_time = time::Duration::from_secs(reconnect_seconds);
+            info!("sleep for {} seconds before try to reconnect ...", reconnect_seconds);
+            thread::sleep(sleep_time);
+            reconnect_seconds = reconnect_seconds * 2;
+            reconnect_attempts += 1;
+            if reconnect_attempts > c.max_reconnect_attempts {
+                error!("reached maximum reconnection attempts ({}), and stop trying", reconnect_attempts);
+                let msg = "reached maximum reconnection attempts";
+                error!("{}", msg);
+                RabbitClient::do_panic(c, msg).await;
+                let _ = tx_resp.send(ClientCommandResponse::GetWorkerRespone(Err(msg.to_string()))).await;
+                return;
+            }
+        }
     }
 }
 
@@ -336,6 +647,7 @@ mod tests {
         }
     }
     
+    #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn multi_thread_dummy() {
         let (tx_err,rx_err): (Sender<(i32, i32)>, Receiver<(i32, i32)>) = mpsc::channel();

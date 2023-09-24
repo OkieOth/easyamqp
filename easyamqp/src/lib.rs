@@ -1,4 +1,5 @@
 pub mod rabbitclient;
+pub mod utils;
 
 
 pub fn dummy() {
