@@ -3,6 +3,7 @@ use env_logger::Env;
 use std::{thread, time};
 
 use easyamqp::rabbitclient::{self, RabbitConParams, RabbitWorker};
+use easyamqp::utils::get_env_var_str;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, Receiver};
 
@@ -121,7 +122,6 @@ async fn task_create_channel(id: i32, mut client: rabbitclient::RabbitClient) ->
 }
 
 async fn create_workers<'a>(client: &mut rabbitclient::RabbitClient, workers: &'a mut Vec<RabbitWorker>) {
-
     for id in 0..30 {
         let w = client.new_worker(id).await.unwrap();
         info!("Try to create worker ...: Worker-{}", id);
@@ -130,16 +130,22 @@ async fn create_workers<'a>(client: &mut rabbitclient::RabbitClient, workers: &'
 }
 
 async fn main_channel() {
+    let user_name = get_env_var_str("RABBIT_USER", "guest");
+    let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+    let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+    let connection_name = get_env_var_str("CONN_NAME", "con_test");
+
+
     let con_params = Some(RabbitConParams{
-        server: "127.0.0.1".to_string(),
+        server: rabbit_server,
         port: 5672,
-        user: "guest".to_string(),
-        password: "guest".to_string(),
+        user: user_name,
+        password: password,
     });
 
     let (tx_panic, mut rx_panic): (Sender<String>, Receiver<String>) = mpsc::channel(1);
     let mra = 3;
-    let mut client: rabbitclient::RabbitClient = rabbitclient::RabbitClient::new_with_name("playground".to_string(), con_params,Some(tx_panic), mra).await;
+    let mut client: rabbitclient::RabbitClient = rabbitclient::RabbitClient::new_with_name(connection_name, con_params,Some(tx_panic), mra).await;
 
     let _ = client.connect().await;
 
@@ -166,7 +172,6 @@ async fn main_channel() {
         }
         t.await;
         t = tokio::time::sleep(duration);
-        
     }
     info!("number of valid workers: {}", workers.len());
     info!("close program");

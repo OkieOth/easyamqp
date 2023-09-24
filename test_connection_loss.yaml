@@ -1,0 +1,41 @@
+version: '3'
+services:
+  rabbitmq:
+    image: rabbitmq:3.11.19-management-alpine
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # RabbitMQ management console port
+    networks:
+      - test_network
+
+  playground:
+    build:
+      context: .
+      args:
+        DOCKER_BUILDKIT: 1
+      dockerfile: Dockerfile.con_test
+    depends_on:
+      - rabbitmq
+    environment:
+      - RABBIT_SERVER=rabbitmq
+      - CONN_NAME=conn1
+    networks:
+      - test_network
+
+  test_runner:
+    build:
+      context: .
+      args:
+        DOCKER_BUILDKIT: 1
+      dockerfile: Dockerfile.testrunner
+    depends_on:
+      - playground
+    environment:
+      - RABBIT_SERVER=rabbitmq
+      - CONN_NAME=conn1
+    networks:
+      - test_network
+
+networks:
+  test_network:
+    driver: bridge

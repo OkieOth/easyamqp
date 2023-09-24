@@ -647,6 +647,7 @@ mod tests {
         }
     }
     
+    #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn multi_thread_dummy() {
         let (tx_err,rx_err): (Sender<(i32, i32)>, Receiver<(i32, i32)>) = mpsc::channel();

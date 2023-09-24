@@ -7,4 +7,4 @@ auto healing and multithreading.
 
 # Project content
 * easyamqp - library crate
-* examples/playground - example binary that plays with the lib
+* examples/con_test - example binary that plays with the lib for connection tests

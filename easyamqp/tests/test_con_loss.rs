@@ -1,25 +1,12 @@
-use std::env;
 use serde_json::{Result, Value};
 use serde_json_path::JsonPath;
+use easyamqp::utils::{get_env_var_str, get_env_var_int};
+use std::{time, thread};
 
-
-fn get_env_var_str(var_name: &str, default_value: &str) -> String {
-    return match env::var(var_name) {
-        Ok(s) => s,
-        Err(_) => default_value.to_string(),
-    };
-}
-
-fn get_env_var_int(var_name: &str, default_value: i32) -> i32 {
-    return match env::var(var_name) {
-        Ok(s) => s.parse::<i32>().unwrap(),
-        Err(_) => default_value,
-    };
-}
 
 fn extract_conn_name_from_json(conn_json_str: &str, connection_name: &str) -> Option<String> {
+    //println!("{}", conn_json_str);
     let v: Value = serde_json::from_str(&conn_json_str).expect("Error while parse Json");
-
     let json_path_str = format!("$[?(@.client_properties.connection_name == '{}')].name", connection_name);
     let json_path = JsonPath::parse(json_path_str.as_str()).expect("error while construct json_path");
     let node_list = json_path.query(&v);
@@ -52,6 +39,9 @@ fn get_conn_name(rabbit_server: &str, user_name: &str, password: &str, connectio
         Ok(o) => {
             let conn_json = o.stdout;
             let conn_json_str = String::from_utf8_lossy(&conn_json);
+            if conn_json_str.len() == 0 {
+                return None;
+            }
             return extract_conn_name_from_json(&conn_json_str, connection_name);
         },
         Err(e) => {
@@ -82,7 +72,7 @@ fn close_conn(rabbit_server: &str, user_name: &str, password: &str, connection_n
             let o_str = String::from_utf8_lossy(&o_vec);
             return Some(o_str.to_string());
         },
-        Err(e) => {
+        Err(_) => {
             println!("failed to close connection");
             return None;
         }
@@ -92,28 +82,54 @@ fn close_conn(rabbit_server: &str, user_name: &str, password: &str, connection_n
 
 #[test]
 #[ignore]
-fn integration_connection_loss() {
+fn connection_loss_test() {
     println!("I am only used in docker compose based integration tests");
     let user_name = get_env_var_str("RABBIT_USER", "guest");
     let password = get_env_var_str("RABBIT_PASSWORD", "guest");
     let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
-    let connection_name = get_env_var_str("CONN_NAME", "playground");
+    let connection_name = get_env_var_str("CONN_NAME", "con_test");
     let count_of_kills = get_env_var_int("KILL_COUNT", 10);
     let expected_conn_count = get_env_var_int("CONN_COUNT", 1);
 
     println!("rabbit_server={}, connection_name={}, count_of_kills={}, expected_conn_count={}",
         rabbit_server, connection_name, count_of_kills, expected_conn_count);
 
-    match get_conn_name(rabbit_server.as_str(), user_name.as_str(), password.as_str(), connection_name.as_str()) {
-        Some(conn_name) => {
-            let s = close_conn(rabbit_server.as_str(),
-                user_name.as_str(), 
-                password.as_str(), 
-                conn_name.as_str()).expect("couldn't close connection");
-            println!("Output: {}", s)
-        },
-        None => {
-            println!("sorry, can't find connection to close");
+    let max_reconnect_attempts = 10;
+    let mut last_conn_name = "".to_string();
+    for i in 0..count_of_kills {
+        let mut reconnect_seconds = 1;
+        let mut reconnect_attempts = 0;
+            loop {
+            match get_conn_name(rabbit_server.as_str(), user_name.as_str(), password.as_str(), connection_name.as_str()) {
+                Some(conn_name) => {
+                    assert_ne!(last_conn_name, conn_name);
+                    if i == count_of_kills -1 {
+                        println!("reached maximum number of connection kills, and found new connection :)")
+                    } else {
+                        let s = close_conn(rabbit_server.as_str(),
+                        user_name.as_str(), 
+                        password.as_str(), 
+                        conn_name.as_str()).expect("couldn't close connection");
+                        assert_eq!("connection closed\n".to_string(),s);
+                        last_conn_name = conn_name;
+                    }
+                    break;
+                },
+                None => {
+                    println!("sorry, can't find connection to close ... sleep for {}s, attempt {}/{}", reconnect_seconds, reconnect_attempts, max_reconnect_attempts);
+                    let sleep_time = time::Duration::from_secs(reconnect_seconds);
+                    thread::sleep(sleep_time);
+                    reconnect_seconds = reconnect_seconds * 2;
+                    reconnect_attempts += 1;
+                    if reconnect_attempts > max_reconnect_attempts {
+                        assert!(false);
+                    }
+                }
+            }
         }
+        println!("connection closed {}/{}, waiting for next try ...", i, count_of_kills);
+        let sleep_time = time::Duration::from_secs(1);
+        thread::sleep(sleep_time);
+
     }
 }

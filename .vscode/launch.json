@@ -7,14 +7,14 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug playground",
+            "name": "Debug con_test",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=playground"
+                    "--bin=con_test"
                 ],
                 "filter": {
-                    "name": "playground",
+                    "name": "con_test",
                     "kind": "bin"
                 },
                 ""
@@ -27,7 +27,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug easyarun",
-            "program": "${workspaceFolder}/examples/playground",
+            "program": "${workspaceFolder}/examples/con_test",
             "args": [],
             "cwd": "${workspaceFolder}"
         }
