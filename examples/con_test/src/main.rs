@@ -150,26 +150,26 @@ async fn main_channel() {
     let _ = client.connect().await;
 
     let mut workers: Vec<RabbitWorker> = Vec::new();
+
+    tokio::spawn(  async move {
+        let s = rx_panic.recv().await.unwrap();
+        error!("received panic request and will panic ...");
+        panic!("{}", s);
+    });
+
     create_workers(&mut client, &mut workers).await;
 
 
     debug!("I am running until I receive a panic request ... or get killed");
     let duration = time::Duration::from_secs(5);
     let mut t: tokio::time::Sleep = tokio::time::sleep(duration);
+
     loop {
-        match rx_panic.try_recv() {
-            Ok(msg) => {
-                error!("receive panic msg: {}", msg);
-                break;
-            },
-            Err(e) => {
-                debug!("received TryRecvError: {}", e.to_string());
-                for w in workers.iter() {
-                    let (ready, con_is_open, chan_is_open) = w.get_state().await;
-                    info!("   I am still here: Worker-{}, ready: {}, conn: {}, channel: {}", w.id, ready, con_is_open, chan_is_open);
-                }
-            }
+        for w in workers.iter() {
+            let (ready, con_is_open, chan_is_open) = w.get_state().await;
+            info!("   I am still here: Worker-{}, ready: {}, conn: {}, channel: {}", w.id, ready, con_is_open, chan_is_open);
         }
+
         t.await;
         t = tokio::time::sleep(duration);
     }

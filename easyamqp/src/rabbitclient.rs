@@ -419,13 +419,16 @@ impl RabbitClient {
     }
 
     async fn do_panic(c: &mut RabbitClientCont, msg: &str) {
+        debug!("panic request ...");
         if c.tx_panic.is_some() {
+            debug!("panic channel is open");
             let pannic_channel: Sender<String> = c.tx_panic.clone().unwrap();
             if let Err(se) = pannic_channel.send(msg.to_string()).await {
                 error!("error while sending panic request: {}", se.to_string());
                 panic!("{}", msg);
             }
         } else {
+            debug!("panic channel is closed");
             panic!("{}", msg);
         };
     }
