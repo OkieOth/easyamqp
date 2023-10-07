@@ -2,6 +2,7 @@
 //! The main handle to the client is a thread safe RabbitCient instance, that works as
 //! factory to create internally the needed connection objects. In addition it is used the
 //! create workers on the connection that can be used for publishing and subscribing of data.
+use amqprs::channel::BasicPublishArguments;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,6 +60,12 @@ pub struct PublishArguments {
     pub routing_key: String,
 }
 
+impl PublishArguments {
+    fn get_publishing_args(&self) -> BasicPublishArguments {
+        BasicPublishArguments::new(self.exchange.as_ref(), self.routing_key.as_ref())
+    }
+}
+
 pub enum DeliveryMode {
     Persistent,
     Transient,
@@ -75,11 +82,32 @@ pub struct MessageProperties {
     reply_to: Option<String>,
     expiration: Option<String>,
     message_id: Option<String>,
-    timestamp: Option<String>,
+    timestamp: Option<u64>,
     message_type: Option<String>,
     user_id: Option<String>,
     app_id: Option<String>,
     cluster_id: Option<String>,
+}
+
+impl MessageProperties {
+    fn get_basic_props(self) -> BasicProperties {
+        BasicProperties::new(
+            self.content_type,
+            self.content_encoding,
+            None, // TODO self.headers,
+            None, // self.delivery_mode,
+            None,
+            self.correlation_id,
+            self.reply_to,
+            self.expiration,
+            self.message_id,
+            self.timestamp,
+            self.message_type,
+            self.user_id,
+            self.app_id,
+            None,
+        )
+    }
 }
 
 pub struct RabbitWorker {
@@ -105,8 +133,28 @@ impl RabbitWorker {
         args: PublishArguments,
         content: Vec<u8>,
         props: MessageProperties,
-    ) {
-        // TODO
+    ) -> std::result::Result<(), String> {
+        let mut guard = self.cont_mutex.lock().await;
+        let worker_cont: &mut RabbitWorkerCont = &mut *guard;
+        let o = worker_cont.channel.as_ref();
+        match o {
+            Some(channel) => {
+                if !channel.is_open() {
+                    return Err("channel is closed".to_string());
+                }
+                let pub_args = args.get_publishing_args();
+                let basic_props = props.get_basic_props();
+                if let Err(e) = channel.basic_publish(basic_props, content, pub_args).await {
+                    error!("{}", "error while publish");
+                    return Err(e.to_string());
+                } else {
+                    return Ok(());
+                }
+            }
+            None => {
+                return Err("channel not available".to_string());
+            }
+        }
     }
 
     /// Considered for repetative publishing of similar messages. It requires that the worker is
