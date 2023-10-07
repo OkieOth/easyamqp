@@ -3,6 +3,7 @@
 //! factory to create internally the needed connection objects. In addition it is used the
 //! create workers on the connection that can be used for publishing and subscribing of data.
 use log::{debug, error, info, warn};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fmt, thread, time};
 use tokio::sync::mpsc;
@@ -52,9 +53,40 @@ struct RabbitWorkerCont {
     callback: RabbitChannelCallback,
 }
 
+#[derive(Debug, Clone)]
+pub struct PublishArguments {
+    pub exchange: String,
+    pub routing_key: String,
+}
+
+pub enum DeliveryMode {
+    Persistent,
+    Transient,
+}
+
+// https://www.rabbitmq.com/publishers.html#message-properties
+// https://github.com/gftea/amqprs/blob/main/amqprs/src/frame/content_header.rs#L55
+pub struct MessageProperties {
+    content_type: Option<String>,
+    content_encoding: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    delivery_mode: Option<DeliveryMode>,
+    correlation_id: Option<String>,
+    reply_to: Option<String>,
+    expiration: Option<String>,
+    message_id: Option<String>,
+    timestamp: Option<String>,
+    message_type: Option<String>,
+    user_id: Option<String>,
+    app_id: Option<String>,
+    cluster_id: Option<String>,
+}
+
 pub struct RabbitWorker {
     pub id: i32,
     cont_mutex: Arc<Mutex<RabbitWorkerCont>>,
+    publish_args: Option<PublishArguments>,
+    msg_props: Option<MessageProperties>,
 }
 
 impl RabbitWorker {
@@ -66,6 +98,21 @@ impl RabbitWorker {
             Some(x) => (true, x.is_connection_open(), x.is_open()),
             None => (false, false, false),
         }
+    }
+
+    pub async fn publish(
+        &self,
+        args: PublishArguments,
+        content: Vec<u8>,
+        props: MessageProperties,
+    ) {
+        // TODO
+    }
+
+    /// Considered for repetative publishing of similar messages. It requires that the worker is
+    /// initialized with publish_args and msg_props
+    pub async fn publ(&self, content: Vec<u8>) {
+        // TODO
     }
 }
 
@@ -595,6 +642,8 @@ impl RabbitClient {
                 let worker = RabbitWorker {
                     id: i,
                     cont_mutex: Arc::new(Mutex::new(worker_cont)),
+                    msg_props: None,
+                    publish_args: None,
                 };
 
                 let worker_handle = RabbitWorkerHandle {
