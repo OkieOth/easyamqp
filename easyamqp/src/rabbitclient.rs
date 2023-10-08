@@ -13,12 +13,71 @@ use tokio::sync::Mutex;
 
 use amqprs::{
     callbacks::{ChannelCallback, ConnectionCallback},
-    channel::Channel,
+    channel::{Channel, ExchangeDeclareArguments},
     connection::{Connection, OpenConnectionArguments},
     Ack, BasicProperties, Cancel, Close, CloseChannel, Nack, Return,
 };
 
 type Result<T> = std::result::Result<T, amqprs::error::Error>;
+
+/// Available exchange types. The number was lowered compared to amqprs to
+/// reduce the complexity
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum RabbitExchangeType {
+    /// Fanout exchange
+    Fanout,
+    /// Topic exchange
+    Topic,
+    /// Direct exchange
+    Direct,
+    /// Headers exchange
+    Headers,
+}
+
+const EXCHANGE_TYPE_FANOUT: &str = "fanout";
+const EXCHANGE_TYPE_TOPIC: &str = "topic";
+const EXCHANGE_TYPE_DIRECT: &str = "direct";
+const EXCHANGE_TYPE_HEADERS: &str = "headers";
+
+impl From<&str> for RabbitExchangeType {
+    fn from(value: &str) -> Self {
+        match value {
+            EXCHANGE_TYPE_FANOUT => RabbitExchangeType::Fanout,
+            EXCHANGE_TYPE_TOPIC => RabbitExchangeType::Topic,
+            EXCHANGE_TYPE_DIRECT => RabbitExchangeType::Direct,
+            EXCHANGE_TYPE_HEADERS => RabbitExchangeType::Headers,
+        }
+    }
+}
+
+impl From<String> for RabbitExchangeType {
+    fn from(value: String) -> Self {
+        RabbitExchangeType::from(value.as_str())
+    }
+}
+
+impl From<RabbitExchangeType> for String {
+    fn from(value: RabbitExchangeType) -> String {
+        match value {
+            RabbitExchangeType::Fanout => EXCHANGE_TYPE_FANOUT.to_owned(),
+            RabbitExchangeType::Topic => EXCHANGE_TYPE_TOPIC.to_owned(),
+            RabbitExchangeType::Direct => EXCHANGE_TYPE_DIRECT.to_owned(),
+            RabbitExchangeType::Headers => EXCHANGE_TYPE_HEADERS.to_owned(),
+        }
+    }
+}
+
+/// Parameters of exchanges,
+#[derive(Debug, Clone)]
+pub struct RabbitExchangeParams {
+    pub exchange_type: RabbitExchangeType,
+    /// Default: `false`.
+    pub passive: bool,
+    /// Default: `false`.
+    pub durable: bool,
+    /// Default: `false`.
+    pub auto_delete: bool,
+}
 
 /// Command send to the async worker that holds the connection
 
@@ -125,6 +184,34 @@ impl RabbitWorker {
         match o {
             Some(x) => (true, x.is_connection_open(), x.is_open()),
             None => (false, false, false),
+        }
+    }
+
+    pub async fn create_exchange(
+        &self,
+        name: String,
+        params: RabbitExchangeParams,
+    ) -> std::result::Result<(), String> {
+        let mut guard = self.cont_mutex.lock().await;
+        let worker_cont: &mut RabbitWorkerCont = &mut *guard;
+        let o = worker_cont.channel.as_ref();
+        match o {
+            Some(channel) => {
+                if !channel.is_open() {
+                    return Err("channel is closed".to_string());
+                }
+                let args =
+                    ExchangeDeclareArguments::new(&name, &String::from(params.exchange_type));
+                if let Err(e) = channel.exchange_declare(args).await {
+                    error!("error while create exchange: {}", e.to_string());
+                    return Err(e.to_string());
+                } else {
+                    return Ok(());
+                }
+            }
+            None => {
+                return Err("channel not available".to_string());
+            }
         }
     }
 
