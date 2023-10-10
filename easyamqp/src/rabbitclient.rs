@@ -6,7 +6,6 @@ use log::{debug, error, info, warn};
 use std::result::Result;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::Mutex;
 
 use crate::client_impl::ClientImpl;
 
