@@ -7,7 +7,6 @@ fn main() {
         user: "guest".to_string(),
         password: "guest".to_string(),
     };
-    let client = rabbitclient::RabbitClient::new(params);
     println!("Hello, world ...");
 
     tokio::runtime::Builder::new_multi_thread()
@@ -15,6 +14,11 @@ fn main() {
         .build()
         .unwrap()
         .block_on(async {
-            client.dummy().await;
+            let client = rabbitclient::RabbitClient::new(params).await;
+            if let Ok(s) = client.dummy().await {
+                println!("Received for dummy: {}", s);
+            } else {
+                println!("Got error for dummy call");
+            }
         });
 }
