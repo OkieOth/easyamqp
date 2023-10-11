@@ -37,7 +37,7 @@ impl RabbitClient {
         }
     }
 
-    pub async fn connect(&self) -> Result<(), String> {
+    pub async fn connect(&mut self) -> Result<(), String> {
         return self.client_impl.connect().await;
     }
 

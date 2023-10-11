@@ -25,7 +25,7 @@ fn main() {
             let (tx_panic, mut rx_panic): (Sender<u32>, Receiver<u32>) = mpsc::channel(1);
 
             info!("started 1");
-            let client = rabbitclient::RabbitClient::new(params).await;
+            let mut client = rabbitclient::RabbitClient::new(params).await;
             info!("started 2");
             client.connect().await.unwrap();
             info!("started 3");
