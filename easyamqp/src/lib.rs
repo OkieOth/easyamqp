@@ -1,3 +1,4 @@
+mod callbacks;
 mod client_impl;
 pub mod rabbitclient;
 pub mod utils;
