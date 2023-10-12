@@ -28,8 +28,9 @@ fn main() {
             let mut client = rabbitclient::RabbitClient::new(params).await;
             info!("started 2");
             client.connect().await.unwrap();
+            client.set_panic_sender(tx_panic).await;
             info!("started 3");
-            rx_panic.recv().await;
+            let _ = rx_panic.recv().await;
             info!("started 4");
         });
 }

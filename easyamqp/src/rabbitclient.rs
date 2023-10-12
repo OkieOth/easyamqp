@@ -49,6 +49,10 @@ impl RabbitClient {
         let r = self.client_impl.dummy(id).await;
         return Ok(r);
     }
+
+    pub async fn set_panic_sender(&self, tx_panic: Sender<u32>) {
+        self.client_impl.set_panic_sender(tx_panic).await;
+    }
 }
 
 #[cfg(test)]

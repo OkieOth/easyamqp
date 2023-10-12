@@ -21,7 +21,6 @@ pub struct RabbitConCallback {
 impl ConnectionCallback for RabbitConCallback {
     async fn close(&mut self, _: &Connection, _: Close) -> Result<()> {
         info!("connection was closed");
-
         if let Err(e) = self.tx_cmd.send(ClientCommand::Connect).await {
             error!(
                 "error while notify about closed connection: {}",
