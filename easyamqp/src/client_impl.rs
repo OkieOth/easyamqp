@@ -1,4 +1,4 @@
-use crate::rabbitclient::RabbitConParams;
+use crate::rabbitclient::{RabbitConParams, ExchangeType};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use std::{thread, time};
@@ -170,4 +170,43 @@ impl ClientImpl {
             }
         }
     }
+
+    pub async fn create_exchange(&self,name: String,
+        exhange_type: ExchangeType,
+        durable: bool,
+        auto_delete: bool) -> Result<(), String> {
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        match &client_cont.connection {
+            Some(con) => {
+                if ! con.is_open() {
+                    return self.do_create_exchange(&con, name, exhange_type, durable, auto_delete).await;
+                } else {
+                    return Err("broker connection isn't open".to_string());
+                }
+            },
+            None => {
+                return Err("no broker connection available".to_string());
+            }
+        }
+    }
+
+    pub async fn do_create_exchange(&self,
+        con: &Connection,
+        name: String,
+        exhange_type: ExchangeType,
+        durable: bool,
+        auto_delete: bool) -> Result<(), String> {
+        let channel = con.open_channel(None).await.unwrap();
+        let type_str: String = exhange_type.into();
+        let mut args = ExchangeDeclareArguments::new(name.as_str(), type_str.as_str());
+        args.auto_delete = auto_delete;
+        args.durable = durable;
+        if let Err(e) = channel.exchange_declare(args).await {
+            return Err(e.to_string());
+        };
+        Ok(())
+    }
+
+
 }
