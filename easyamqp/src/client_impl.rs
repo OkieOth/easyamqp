@@ -171,7 +171,7 @@ impl ClientImpl {
         }
     }
 
-    pub async fn create_exchange(&self,name: String,
+    pub async fn create_exchange(&self,name: &str,
         exhange_type: ExchangeType,
         durable: bool,
         auto_delete: bool) -> Result<(), String> {
@@ -179,7 +179,7 @@ impl ClientImpl {
         let client_cont: &mut ClientImplCont = &mut *guard;
         match &client_cont.connection {
             Some(con) => {
-                if ! con.is_open() {
+                if con.is_open() {
                     return self.do_create_exchange(&con, name, exhange_type, durable, auto_delete).await;
                 } else {
                     return Err("broker connection isn't open".to_string());
@@ -193,13 +193,13 @@ impl ClientImpl {
 
     pub async fn do_create_exchange(&self,
         con: &Connection,
-        name: String,
+        name: &str,
         exhange_type: ExchangeType,
         durable: bool,
         auto_delete: bool) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
         let type_str: String = exhange_type.into();
-        let mut args = ExchangeDeclareArguments::new(name.as_str(), type_str.as_str());
+        let mut args = ExchangeDeclareArguments::new(name, type_str.as_str());
         args.auto_delete = auto_delete;
         args.durable = durable;
         if let Err(e) = channel.exchange_declare(args).await {
@@ -207,6 +207,4 @@ impl ClientImpl {
         };
         Ok(())
     }
-
-
 }

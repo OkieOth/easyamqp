@@ -51,13 +51,6 @@ impl From<ExchangeType> for String {
     }
 }
 
-pub enum ExchangeExistsResult {
-    Yes,
-    WrongParameters,
-    No,
-    
-}
-
 
 pub struct RabbitClient {
     client_impl: ClientImpl,
@@ -88,12 +81,8 @@ impl RabbitClient {
         self.client_impl.set_panic_sender(tx_panic).await;
     }
 
-    pub async fn create_exchange(&self, name: String, exhange_type: ExchangeType, durable: bool, auto_delete: bool) -> Result<(), String> {
+    pub async fn create_exchange(&self, name: &str, exhange_type: ExchangeType, durable: bool, auto_delete: bool) -> Result<(), String> {
         return self.client_impl.create_exchange(name, exhange_type, durable, auto_delete).await;
-    }
-
-    pub async fn does_exchange_exist(&self,name: String, exhange_type: ExchangeType, durable: bool, auto_delete: bool) -> Result<ExchangeExistsResult, String> {
-        return self.client_impl.does_exchange_exist(name, exhange_type, durable, auto_delete).await;
     }
 }
 
