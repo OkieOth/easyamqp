@@ -8,6 +8,10 @@ jq '.[] | select(.client_properties.connection_name == "con_test") | .name'
 
 rabbitmqadmin --username guest --password guest close connection name="172.31.0.1:51752 -> 172.31.0.2:5672"
 
+rabbitmqadmin --username guest --password guest declare exchange name=first type=topic
+
+rabbitmqadmin --username guest --password guest list exchanges -f pretty_json
+
 ```
 
 # JSON Parsing

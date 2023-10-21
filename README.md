@@ -8,3 +8,20 @@ auto healing and multithreading.
 # Project content
 * easyamqp - library crate
 * examples/con_test - example binary that plays with the lib for connection tests
+
+# Usage
+
+```bash
+# start the dev env
+./bin/compose_env.sh start
+
+# between this call, you can for instance run the integration tests
+# against this test env
+cargo test -- --ignored --show-output
+
+# stop the dev env
+./bin/compose_env.sh stop
+
+# run all integration tests in a closed docker compose env
+./bin/test_easy_amqp.sh test
+```
