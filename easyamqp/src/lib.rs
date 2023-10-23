@@ -1,10 +1,12 @@
 mod callbacks;
-mod client_impl;
 mod publisher;
 mod subscriber;
-pub mod rabbitclient;
-pub mod topology;
+mod rabbitclient;
+mod topology;
 pub mod utils;
+
+pub use rabbitclient::{RabbitConParams, RabbitClient};
+pub use topology::{ExchangeDefinition, ExchangeType};
 
 pub fn dummy() {
     println!("    Hello, from the lib!");

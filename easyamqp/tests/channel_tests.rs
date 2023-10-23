@@ -1,4 +1,4 @@
-use easyamqp::rabbitclient;
+use easyamqp::{RabbitClient, RabbitConParams, ExchangeDefinition, ExchangeType};
 use easyamqp::utils::get_env_var_str;
 use serde_json::Value;
 use serde_json_path::JsonPath;
@@ -65,7 +65,7 @@ fn create_exchange_test() {
         let password = get_env_var_str("RABBIT_PASSWORD", "guest");
         let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
         
-        let params = rabbitclient::RabbitConParams {
+        let params = RabbitConParams {
             con_name: None,
             server: rabbit_server.clone(),
             port: 5672,
@@ -73,39 +73,39 @@ fn create_exchange_test() {
             password: password.clone(),
         };
 
-        let mut client = rabbitclient::RabbitClient::new(params).await;
+        let mut client = RabbitClient::new(params).await;
         client.connect().await.unwrap();
-        let param1 = rabbitclient::ExchangeParams {
+        let param1 = ExchangeDefinition {
             name: "first".to_string(),
-            exhange_type: rabbitclient::ExchangeType::Topic, 
+            exhange_type: ExchangeType::Topic, 
             durable: true,
             auto_delete: false,
         };
         client.declare_exchange(param1).await.unwrap();
 
-        let param2 = rabbitclient::ExchangeParams {
+        let param2 = ExchangeDefinition {
             name: "second".to_string(),
-            exhange_type: rabbitclient::ExchangeType::Topic, 
+            exhange_type: ExchangeType::Topic, 
             durable: false,
             auto_delete: false,
         };
         client.declare_exchange(param2).await.unwrap();
 
-        let param3 = rabbitclient::ExchangeParams {
+        let param3 = ExchangeDefinition {
             name: "third".to_string(),
-            exhange_type: rabbitclient::ExchangeType::Topic, 
+            exhange_type: ExchangeType::Topic, 
             durable: false,
             auto_delete: false,
         };
         client.declare_exchange(param3).await.unwrap();
 
-        let param4 = rabbitclient::ExchangeParams {
+        let param4 = ExchangeDefinition {
             name: "second".to_string(),
-            exhange_type: rabbitclient::ExchangeType::Topic, 
+            exhange_type: ExchangeType::Topic, 
             durable: false,
             auto_delete: false,
         };
-        client.create_exchange(param4).await.unwrap();
+        client.declare_exchange(param4).await.unwrap();
 
         client.close().await;
 

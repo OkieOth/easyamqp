@@ -1,3 +1,17 @@
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+
+use crate::rabbitclient::ClientImplCont;
+
+use amqprs::{
+    callbacks::{ChannelCallback, ConnectionCallback},
+    channel::{Channel, ExchangeDeclareArguments},
+    connection::{Connection, OpenConnectionArguments},
+    Ack, BasicProperties, Cancel, Close, CloseChannel, Nack, Return,
+};
+
+
 #[derive(Debug, Clone, Default)]
 /// Represents parameters for configuring a message exchange.
 pub struct ExchangeDefinition {
@@ -73,13 +87,40 @@ pub struct QueueBindingDefinition {
     pub routing_key: String,
 }
 
-#[derive(Debug, Clone, Default)]
 pub struct Topology {
-    exchanges: Vec<ExchangeDefinition>,
-    queues: Vec<QueueDefinition>,
-    bindings: Vec<QueueBindingDefinition>
+    pub exchanges: Vec<ExchangeDefinition>,
+    pub queues: Vec<QueueDefinition>,
+    pub bindings: Vec<QueueBindingDefinition>,
+    pub cont: Arc<Mutex<ClientImplCont>>,
 }
 
 impl Topology {
+    pub async fn declare_exchange(&self,params: ExchangeDefinition) -> Result<(), String> {
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        match &client_cont.connection {
+            Some(con) => {
+                if con.is_open() {
+                    return self.do_declare_exchange(&con, params).await;
+                } else {
+                    return Err("broker connection isn't open".to_string());
+                }
+            },
+            None => {
+                return Err("no broker connection available".to_string());
+            }
+        }
+    }
 
+    pub async fn do_declare_exchange(&self,con: &Connection,params: ExchangeDefinition) -> Result<(), String> {
+        let channel = con.open_channel(None).await.unwrap();
+        let type_str: String = params.exhange_type.into();
+        let mut args = ExchangeDeclareArguments::new(params.name.as_str(), type_str.as_str());
+        args.auto_delete = params.auto_delete;
+        args.durable = params.durable;
+        if let Err(e) = channel.exchange_declare(args).await {
+            return Err(e.to_string());
+        };
+        Ok(())
+    }
 }

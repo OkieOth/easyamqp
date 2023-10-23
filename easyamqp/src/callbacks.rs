@@ -6,7 +6,7 @@ use amqprs::{
     Close,
 };
 
-use crate::client_impl::ClientCommand;
+use crate::rabbitclient::ClientCommand;
 
 
 type Result<T> = std::result::Result<T, amqprs::error::Error>;
