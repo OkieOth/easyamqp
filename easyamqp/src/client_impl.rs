@@ -1,4 +1,4 @@
-use crate::rabbitclient::{RabbitConParams, ExchangeType};
+use crate::rabbitclient::{RabbitConParams, ExchangeType, ExchangeParams};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use std::{thread, time};
@@ -171,16 +171,13 @@ impl ClientImpl {
         }
     }
 
-    pub async fn create_exchange(&self,name: &str,
-        exhange_type: ExchangeType,
-        durable: bool,
-        auto_delete: bool) -> Result<(), String> {
+    pub async fn create_exchange(&self,params: ExchangeParams) -> Result<(), String> {
         let mut guard = self.cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
         match &client_cont.connection {
             Some(con) => {
                 if con.is_open() {
-                    return self.do_create_exchange(&con, name, exhange_type, durable, auto_delete).await;
+                    return self.do_create_exchange(&con, params).await;
                 } else {
                     return Err("broker connection isn't open".to_string());
                 }
@@ -191,17 +188,12 @@ impl ClientImpl {
         }
     }
 
-    pub async fn do_create_exchange(&self,
-        con: &Connection,
-        name: &str,
-        exhange_type: ExchangeType,
-        durable: bool,
-        auto_delete: bool) -> Result<(), String> {
+    pub async fn do_create_exchange(&self,con: &Connection,params: ExchangeParams) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
-        let type_str: String = exhange_type.into();
-        let mut args = ExchangeDeclareArguments::new(name, type_str.as_str());
-        args.auto_delete = auto_delete;
-        args.durable = durable;
+        let type_str: String = params.exhange_type.into();
+        let mut args = ExchangeDeclareArguments::new(params.name.as_str(), type_str.as_str());
+        args.auto_delete = params.auto_delete;
+        args.durable = params.durable;
         if let Err(e) = channel.exchange_declare(args).await {
             return Err(e.to_string());
         };

@@ -75,10 +75,38 @@ fn create_exchange_test() {
 
         let mut client = rabbitclient::RabbitClient::new(params).await;
         client.connect().await.unwrap();
-        client.create_exchange("first", rabbitclient::ExchangeType::Topic, true, false).await.unwrap();
-        client.create_exchange("second", rabbitclient::ExchangeType::Topic, false, false).await.unwrap();
-        client.create_exchange("third", rabbitclient::ExchangeType::Topic, false, false).await.unwrap();
-        client.create_exchange("second", rabbitclient::ExchangeType::Topic, false, false).await.unwrap();
+        let param1 = rabbitclient::ExchangeParams {
+            name: "first".to_string(),
+            exhange_type: rabbitclient::ExchangeType::Topic, 
+            durable: true,
+            auto_delete: false,
+        };
+        client.create_exchange(param1).await.unwrap();
+
+        let param2 = rabbitclient::ExchangeParams {
+            name: "second".to_string(),
+            exhange_type: rabbitclient::ExchangeType::Topic, 
+            durable: false,
+            auto_delete: false,
+        };
+        client.create_exchange(param2).await.unwrap();
+
+        let param3 = rabbitclient::ExchangeParams {
+            name: "third".to_string(),
+            exhange_type: rabbitclient::ExchangeType::Topic, 
+            durable: false,
+            auto_delete: false,
+        };
+        client.create_exchange(param3).await.unwrap();
+
+        let param4 = rabbitclient::ExchangeParams {
+            name: "second".to_string(),
+            exhange_type: rabbitclient::ExchangeType::Topic, 
+            durable: false,
+            auto_delete: false,
+        };
+        client.create_exchange(param4).await.unwrap();
+
         client.close().await;
 
         match get_exchanges(&rabbit_server, &user_name, &password) {

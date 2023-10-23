@@ -57,6 +57,22 @@ pub enum ExchangeType {
     Headers,
 }
 
+const EXCHANGE_TYPE_FANOUT: &str = "fanout";
+const EXCHANGE_TYPE_TOPIC:  &str = "topic";
+const EXCHANGE_TYPE_DIRECT:  &str = "direct";
+const EXCHANGE_TYPE_HEADERS:  &str = "headers";
+
+impl From<ExchangeType> for String {
+    fn from(value: ExchangeType) -> String {
+        match value {
+            ExchangeType::Fanout => EXCHANGE_TYPE_FANOUT.to_owned(),
+            ExchangeType::Topic => EXCHANGE_TYPE_TOPIC.to_owned(),
+            ExchangeType::Direct => EXCHANGE_TYPE_DIRECT.to_owned(),
+            ExchangeType::Headers => EXCHANGE_TYPE_HEADERS.to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 /// Represents parameters for configuring an AMQP queue.
 pub struct QueueParams {
@@ -76,21 +92,6 @@ pub struct QueueParams {
     pub auto_delete: bool,
 }
 
-const EXCHANGE_TYPE_FANOUT: &str = "fanout";
-const EXCHANGE_TYPE_TOPIC:  &str = "topic";
-const EXCHANGE_TYPE_DIRECT:  &str = "direct";
-const EXCHANGE_TYPE_HEADERS:  &str = "headers";
-
-impl From<ExchangeType> for String {
-    fn from(value: ExchangeType) -> String {
-        match value {
-            ExchangeType::Fanout => EXCHANGE_TYPE_FANOUT.to_owned(),
-            ExchangeType::Topic => EXCHANGE_TYPE_TOPIC.to_owned(),
-            ExchangeType::Direct => EXCHANGE_TYPE_DIRECT.to_owned(),
-            ExchangeType::Headers => EXCHANGE_TYPE_HEADERS.to_owned(),
-        }
-    }
-}
 
 
 pub struct RabbitClient {
@@ -122,8 +123,8 @@ impl RabbitClient {
         self.client_impl.set_panic_sender(tx_panic).await;
     }
 
-    pub async fn create_exchange(&self, name: &str, exhange_type: ExchangeType, durable: bool, auto_delete: bool) -> Result<(), String> {
-        return self.client_impl.create_exchange(name, exhange_type, durable, auto_delete).await;
+    pub async fn create_exchange(&self, params: ExchangeParams) -> Result<(), String> {
+        return self.client_impl.create_exchange(params).await;
     }
 
     pub async fn new_publisher(&self, exchange: &str) -> Result<Publisher, String> {
