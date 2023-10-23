@@ -3,11 +3,14 @@
 //! factory to create internally the needed connection objects. In addition it is used the
 //! create workers on the connection that can be used for publishing and subscribing of data.
 use log::{error, warn};
+use std::default;
 use std::result::Result;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::client_impl::ClientImpl;
+use crate::publisher::Publisher;
+use crate::subscriber::Subscriber;
 
 /// Container for the connection parameters for the broker connection
 #[derive(Debug, Clone, Default)]
@@ -24,15 +27,53 @@ pub struct RabbitConParams {
     pub password: String,
 }
 
+#[derive(Debug, Clone, Default)]
+/// Represents parameters for configuring a message exchange.
+pub struct ExchangeParams {
+    /// The name of the exchange. It is a string that identifies the exchange.
+    pub name: String,
+
+    /// The type of the exchange, indicating how it routes messages to queues.
+    pub exhange_type: ExchangeType,
+
+    /// Specifies whether the exchange should survive server restarts.
+    pub durable: bool,
+
+    /// Indicates whether the exchange should be deleted when it's no longer in use.
+    pub auto_delete: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+/// Supported types of Exchanges
 pub enum ExchangeType {
     /// Fanout exchange
     Fanout,
     /// Topic exchange
+    #[default]
     Topic,
     /// Direct exchange
     Direct,
     /// Headers exchange
     Headers,
+}
+
+#[derive(Debug, Clone, Default)]
+/// Represents parameters for configuring an AMQP queue.
+pub struct QueueParams {
+    /// The name of the queue.
+    pub name: String,
+
+    /// Specifies whether the queue should survive server restarts.
+    /// Defaults to `false`.
+    pub durable: bool,
+
+    /// Indicates whether the queue can only be accessed by the current connection.
+    /// Defaults to `false`.
+    pub exclusive: bool,
+
+    /// Indicates whether the queue should be deleted when it's no longer in use.
+    /// Defaults to `false`.
+    pub auto_delete: bool,
 }
 
 const EXCHANGE_TYPE_FANOUT: &str = "fanout";
@@ -84,7 +125,17 @@ impl RabbitClient {
     pub async fn create_exchange(&self, name: &str, exhange_type: ExchangeType, durable: bool, auto_delete: bool) -> Result<(), String> {
         return self.client_impl.create_exchange(name, exhange_type, durable, auto_delete).await;
     }
+
+    pub async fn new_publisher(&self, exchange: &str) -> Result<Publisher, String> {
+        Err("TODO".to_string())
+    }
+
+    pub async fn new_subscriber(&self, exchange: &str, routing_key: &str, queue: &str) -> Result<Subscriber, String> {
+        Err("TODO".to_string())
+    }
+
 }
+
 
 #[cfg(test)]
 mod tests {
