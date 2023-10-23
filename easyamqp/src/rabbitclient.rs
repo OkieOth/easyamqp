@@ -11,6 +11,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use crate::client_impl::ClientImpl;
 use crate::publisher::Publisher;
 use crate::subscriber::Subscriber;
+use crate::topology::{ExchangeDefinition, ExchangeType, QueueDefinition, QueueBindingDefinition};
 
 /// Container for the connection parameters for the broker connection
 #[derive(Debug, Clone, Default)]
@@ -27,74 +28,12 @@ pub struct RabbitConParams {
     pub password: String,
 }
 
-#[derive(Debug, Clone, Default)]
-/// Represents parameters for configuring a message exchange.
-pub struct ExchangeParams {
-    /// The name of the exchange. It is a string that identifies the exchange.
-    pub name: String,
-
-    /// The type of the exchange, indicating how it routes messages to queues.
-    pub exhange_type: ExchangeType,
-
-    /// Specifies whether the exchange should survive server restarts.
-    pub durable: bool,
-
-    /// Indicates whether the exchange should be deleted when it's no longer in use.
-    pub auto_delete: bool,
-}
-
-#[derive(Debug, Clone, Default)]
-/// Supported types of Exchanges
-pub enum ExchangeType {
-    /// Fanout exchange
-    Fanout,
-    /// Topic exchange
-    #[default]
-    Topic,
-    /// Direct exchange
-    Direct,
-    /// Headers exchange
-    Headers,
-}
-
-const EXCHANGE_TYPE_FANOUT: &str = "fanout";
-const EXCHANGE_TYPE_TOPIC:  &str = "topic";
-const EXCHANGE_TYPE_DIRECT:  &str = "direct";
-const EXCHANGE_TYPE_HEADERS:  &str = "headers";
-
-impl From<ExchangeType> for String {
-    fn from(value: ExchangeType) -> String {
-        match value {
-            ExchangeType::Fanout => EXCHANGE_TYPE_FANOUT.to_owned(),
-            ExchangeType::Topic => EXCHANGE_TYPE_TOPIC.to_owned(),
-            ExchangeType::Direct => EXCHANGE_TYPE_DIRECT.to_owned(),
-            ExchangeType::Headers => EXCHANGE_TYPE_HEADERS.to_owned(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-/// Represents parameters for configuring an AMQP queue.
-pub struct QueueParams {
-    /// The name of the queue.
-    pub name: String,
-
-    /// Specifies whether the queue should survive server restarts.
-    /// Defaults to `false`.
-    pub durable: bool,
-
-    /// Indicates whether the queue can only be accessed by the current connection.
-    /// Defaults to `false`.
-    pub exclusive: bool,
-
-    /// Indicates whether the queue should be deleted when it's no longer in use.
-    /// Defaults to `false`.
-    pub auto_delete: bool,
-}
-
 
 
 pub struct RabbitClient {
+    /// Optional Application identifier, when set used a part of BasicProperties
+    app_id: Option<String>,
+
     client_impl: ClientImpl,
 }
 
@@ -102,6 +41,7 @@ impl RabbitClient {
     pub async fn new(con_params: RabbitConParams) -> Self {
         let client_impl = ClientImpl::new(con_params).await;
         RabbitClient {
+            app_id: None,
             client_impl,
         }
     }
@@ -123,15 +63,28 @@ impl RabbitClient {
         self.client_impl.set_panic_sender(tx_panic).await;
     }
 
-    pub async fn create_exchange(&self, params: ExchangeParams) -> Result<(), String> {
-        return self.client_impl.create_exchange(params).await;
+    pub async fn declare_exchange(&self, params: ExchangeDefinition) -> Result<(), String> {
+        return self.client_impl.declare_exchange(params).await;
     }
 
-    pub async fn new_publisher(&self, exchange: &str) -> Result<Publisher, String> {
+    pub async fn declare_queue(&self, params: QueueDefinition) -> Result<(), String> {
+        // TODO
+        Ok(())
+        // return self.client_impl.create_exchange(params).await;
+    }
+
+    pub async fn declare_queue_binding(&self, params: QueueBindingDefinition) -> Result<(), String> {
+        // TODO
+        Ok(())
+        // return self.client_impl.create_exchange(params).await;
+    }
+
+
+    pub async fn new_publisher(&self, exchange_params: ExchangeDefinition) -> Result<Publisher, String> {
         Err("TODO".to_string())
     }
 
-    pub async fn new_subscriber(&self, exchange: &str, routing_key: &str, queue: &str) -> Result<Subscriber, String> {
+    pub async fn new_subscriber(&self, exchange_params: ExchangeDefinition, queue_params: QueueDefinition) -> Result<Subscriber, String> {
         Err("TODO".to_string())
     }
 

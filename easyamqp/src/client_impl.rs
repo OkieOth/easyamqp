@@ -1,4 +1,4 @@
-use crate::rabbitclient::{RabbitConParams, ExchangeType, ExchangeParams};
+use crate::rabbitclient::RabbitConParams;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use std::{thread, time};
@@ -14,6 +14,7 @@ use amqprs::{
 };
 
 use crate::callbacks::RabbitConCallback;
+use crate::topology::{ExchangeDefinition, ExchangeType, QueueDefinition, QueueBindingDefinition};
 
 pub enum ClientCommand {
     Connect,
@@ -171,13 +172,13 @@ impl ClientImpl {
         }
     }
 
-    pub async fn create_exchange(&self,params: ExchangeParams) -> Result<(), String> {
+    pub async fn declare_exchange(&self,params: ExchangeDefinition) -> Result<(), String> {
         let mut guard = self.cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
         match &client_cont.connection {
             Some(con) => {
                 if con.is_open() {
-                    return self.do_create_exchange(&con, params).await;
+                    return self.do_declare_exchange(&con, params).await;
                 } else {
                     return Err("broker connection isn't open".to_string());
                 }
@@ -188,7 +189,7 @@ impl ClientImpl {
         }
     }
 
-    pub async fn do_create_exchange(&self,con: &Connection,params: ExchangeParams) -> Result<(), String> {
+    pub async fn do_declare_exchange(&self,con: &Connection,params: ExchangeDefinition) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
         let type_str: String = params.exhange_type.into();
         let mut args = ExchangeDeclareArguments::new(params.name.as_str(), type_str.as_str());

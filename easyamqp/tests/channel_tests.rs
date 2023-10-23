@@ -81,7 +81,7 @@ fn create_exchange_test() {
             durable: true,
             auto_delete: false,
         };
-        client.create_exchange(param1).await.unwrap();
+        client.declare_exchange(param1).await.unwrap();
 
         let param2 = rabbitclient::ExchangeParams {
             name: "second".to_string(),
@@ -89,7 +89,7 @@ fn create_exchange_test() {
             durable: false,
             auto_delete: false,
         };
-        client.create_exchange(param2).await.unwrap();
+        client.declare_exchange(param2).await.unwrap();
 
         let param3 = rabbitclient::ExchangeParams {
             name: "third".to_string(),
@@ -97,7 +97,7 @@ fn create_exchange_test() {
             durable: false,
             auto_delete: false,
         };
-        client.create_exchange(param3).await.unwrap();
+        client.declare_exchange(param3).await.unwrap();
 
         let param4 = rabbitclient::ExchangeParams {
             name: "second".to_string(),
