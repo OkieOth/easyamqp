@@ -22,7 +22,6 @@ use amqprs::{
 use crate::publisher::Publisher;
 use crate::subscriber::Subscriber;
 use crate::topology::Topology;
-use crate::topology::TopologyCont;
 use crate::topology::{ExchangeDefinition, ExchangeType, QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitConCallback;
 
@@ -49,8 +48,6 @@ pub struct RabbitClient {
     tx_cmd: Sender<ClientCommand>,
     con_callback: RabbitConCallback,
     cont: Arc<Mutex<ClientImplCont>>,
-
-    topology: Topology,
 }
 
 impl RabbitClient {
@@ -59,27 +56,23 @@ impl RabbitClient {
         let con_callback = RabbitConCallback {
             tx_cmd: tx_cmd.clone(),
         };
-        let cont_impl = ClientImplCont {
-            connection: None,
-            tx_panic: None,
-        };
-        let top_impl = TopologyCont {
+        let top = Topology {
             exchanges: Vec::new(),
             queues: Vec::new(),
             bindings: Vec::new(),
         };
+        let cont_impl = ClientImplCont {
+            connection: None,
+            tx_panic: None,
+            topology: top,
+        };
         let c = Arc::new(Mutex::new(cont_impl));
-        let t = Arc::new(Mutex::new(top_impl));
         let ret = RabbitClient {
             app_id: None,
             con_params,
             tx_cmd,
             con_callback,
             cont: c.clone(),
-            topology: Topology {
-                client_cont: c,
-                cont: t,
-            }
         };
         ret.start_cmd_receiver_task(rx_cmd);
         return ret;
@@ -105,15 +98,33 @@ impl RabbitClient {
     }
 
     pub async fn declare_exchange(&self, exchange_def: ExchangeDefinition) -> Result<(), String> {
-        return self.topology.declare_exchange(exchange_def).await;
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        if client_cont.connection.is_some() {
+            client_cont.topology.declare_exchange(exchange_def, &client_cont.connection.as_ref().unwrap()).await
+        } else {
+            Err("Connection isn't ready".to_string())
+        }
     }
 
     pub async fn declare_queue(&self, queue_def: QueueDefinition) -> Result<(), String> {
-        return self.topology.declare_queue(queue_def).await;
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        if client_cont.connection.is_some() {
+            client_cont.topology.declare_queue(queue_def, &client_cont.connection.as_ref().unwrap()).await
+        } else {
+            Err("Connection isn't ready".to_string())
+        }
     }
 
     pub async fn declare_queue_binding(&self, binding_def: QueueBindingDefinition) -> Result<(), String> {
-        return self.topology.declare_queue_binding(binding_def).await;
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        if client_cont.connection.is_some() {
+            client_cont.topology.declare_queue_binding(binding_def, &client_cont.connection.as_ref().unwrap()).await
+        } else {
+            Err("Connection isn't ready".to_string())
+        }
     }
 
 
@@ -141,6 +152,10 @@ impl RabbitClient {
         }
     }
 
+    async fn recreate_topology(client_cont: &Arc<Mutex<ClientImplCont>>) {
+
+    }
+
     fn start_cmd_receiver_task(&self, mut rx_command: Receiver<ClientCommand>) {
         let con_params = self.con_params.clone();
         let con_callback = self.con_callback.clone();
@@ -160,7 +175,7 @@ impl RabbitClient {
                         if let Err(_) = RabbitClient::do_connect(&con_params,con_callback.clone(),&cont,4).await {
                             RabbitClient::send_panic(&cont).await;
                         } else {
-                            
+                            RabbitClient::recreate_topology(&cont).await;
                         }
                     }
                 }
@@ -233,6 +248,7 @@ impl RabbitClient {
 }
 
 pub struct ClientImplCont {
+    topology: Topology,
     pub connection: Option<Connection>,
     pub tx_panic: Option<Sender<u32>>,
 }
