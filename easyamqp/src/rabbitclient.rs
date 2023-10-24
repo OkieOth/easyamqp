@@ -3,6 +3,7 @@
 //! factory to create internally the needed connection objects. In addition it is used the
 //! create workers on the connection that can be used for publishing and subscribing of data.
 use log::{debug, error, info, warn};
+use std::default;
 use std::sync::Arc;
 use std::time;
 use std::thread;
@@ -33,6 +34,63 @@ pub struct RabbitConParams {
     pub user: String,
     /// Password used for authentication
     pub password: String,
+}
+
+impl RabbitConParams {
+    pub fn builder() -> RabbitConParamsBuilder {
+        RabbitConParamsBuilder::default()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RabbitConParamsBuilder {
+    /// Connection name
+    pub con_name: Option<String>,
+    /// Server name or IP address to connect to
+    pub server: Option<String>,
+    /// Port of the RabbitMq server
+    pub port: u16,
+    /// User used for authentication
+    pub user: Option<String>,
+    /// Password used for authentication
+    pub password: Option<String>,
+}
+
+impl RabbitConParamsBuilder {
+    pub fn new() -> RabbitConParamsBuilder {
+        RabbitConParamsBuilder::default()
+    }
+
+    pub fn con_name(mut self, con_name: &str) -> RabbitConParamsBuilder {
+        self.con_name = Some(con_name.to_string());
+        self
+    }
+    pub fn server<'a> (mut self, server: &str) -> RabbitConParamsBuilder {
+        self.server = Some(server.to_string());
+        self
+    }
+    pub fn user<'a> (mut self, user: &str) -> RabbitConParamsBuilder {
+        self.user = Some(user.to_string());
+        self
+    }
+    pub fn password<'a> (mut self, password: &str) -> RabbitConParamsBuilder {
+        self.password = Some(password.to_string());
+        self
+    }
+    pub fn port(mut self, port: u16) -> RabbitConParamsBuilder {
+        self.port = port;
+        self
+    }
+
+    pub fn build(&self) -> RabbitConParams {
+        RabbitConParams {
+            con_name: self.con_name.as_deref().map(|s| Some(s.to_string())).unwrap_or_default(),
+            server: self.server.as_deref().map(|s| s.to_string()).unwrap_or_default(),
+            user: self.user.as_deref().map(|s| s.to_string()).unwrap_or_default(),
+            password: self.password.as_deref().map(|s| s.to_string()).unwrap_or_default(),
+            port: if self.port == 0 { 5672 } else { self.port },
+        }
+    }
 }
 
 pub struct RabbitClient {
@@ -294,16 +352,39 @@ impl std::fmt::Display for ClientCommand {
 mod tests {
     use crate::rabbitclient;
 
+    #[test]
+    fn rabbitconparam_builder_test() {
+        let params = rabbitclient::RabbitConParams::builder()
+            .server("test_server")
+            .user("test_user")
+            .password("test_pwd")
+            .build();
+        assert_eq!("test_server", params.server);
+        assert_eq!("test_user", params.user);
+        assert_eq!("test_pwd", params.password);
+        assert_eq!(5672, params.port);
+        assert_eq!(None, params.con_name);
+
+        // TODO harden!!!
+        // let params2 = rabbitclient::RabbitConParams::builder()
+        //     .server("test_server")
+        //     .user("test_user")
+        //     .password("test_pwd")
+        //     .build();
+        // assert_eq!("test_server", params.server);
+        // assert_eq!("test_user", params.user);
+        // assert_eq!("test_pwd", params.password);
+        // assert_eq!(5672, params.port);
+        // assert_eq!(None, params.con_name);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn dummy() {
-        let params = rabbitclient::RabbitConParams {
-            con_name: None,
-            server: "127.0.0.1".to_string(),
-            port: 5672,
-            user: "guest".to_string(),
-            password: "guest".to_string(),
-        };
-
+        let params = rabbitclient::RabbitConParams::builder()
+            .server("127.0.0.1")
+            .user("guest")
+            .password("guest")
+            .build();
 
         let client = rabbitclient::RabbitClient::new(params).await;
 

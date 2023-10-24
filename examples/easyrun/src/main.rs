@@ -1,5 +1,6 @@
 use env_logger::Env;
-use easyamqp::{RabbitClient, RabbitConParams, ExchangeDefinition, ExchangeType, 
+use easyamqp::{RabbitClient, RabbitConParams,
+    ExchangeDefinition, ExchangeType, 
     QueueDefinition, QueueBindingDefinition};
 use log::info;
 use tokio::sync::mpsc;
@@ -94,13 +95,20 @@ fn main() {
     let env = Env::default().filter_or("LOG_LEVEL", "info");
     env_logger::init_from_env(env);
 
-    let params = RabbitConParams {
-        con_name: None,
-        server: "127.0.0.1".to_string(),
-        port: 5672,
-        user: "guest".to_string(),
-        password: "guest".to_string(),
-    };
+    let params = RabbitConParams::builder()
+        .server("127.0.0.1")
+        .user("guest")
+        .password("guest")
+        .build();
+    
+    
+    //  {
+    //     con_name: None,
+    //     server: "127.0.0.1".to_string(),
+    //     port: 5672,
+    //     user: "guest".to_string(),
+    //     password: "guest".to_string(),
+    // };
     info!("started ...");
 
     tokio::runtime::Builder::new_multi_thread()

@@ -138,13 +138,11 @@ fn create_exchange_test() {
         let password = get_env_var_str("RABBIT_PASSWORD", "guest");
         let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
         
-        let params = RabbitConParams {
-            con_name: None,
-            server: rabbit_server.clone(),
-            port: 5672,
-            user: user_name.clone(),
-            password: password.clone(),
-        };
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
 
         let mut client = RabbitClient::new(params).await;
         client.connect().await.unwrap();
@@ -217,13 +215,11 @@ fn create_queues_test() {
         let password = get_env_var_str("RABBIT_PASSWORD", "guest");
         let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
 
-        let params = RabbitConParams {
-            con_name: None,
-            server: rabbit_server.clone(),
-            port: 5672,
-            user: user_name.clone(),
-            password: password.clone(),
-        };
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
 
         let mut client = RabbitClient::new(params).await;
         client.connect().await.unwrap();
@@ -296,13 +292,11 @@ fn create_bindings_test() {
         let password = get_env_var_str("RABBIT_PASSWORD", "guest");
         let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
 
-        let params = RabbitConParams {
-            con_name: None,
-            server: rabbit_server.clone(),
-            port: 5672,
-            user: user_name.clone(),
-            password: password.clone(),
-        };
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
 
         let mut client = RabbitClient::new(params).await;
         client.connect().await.unwrap();
