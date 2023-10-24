@@ -363,18 +363,6 @@ mod tests {
         assert_eq!("test_pwd", params.password);
         assert_eq!(5672, params.port);
         assert_eq!(None, params.con_name);
-
-        // TODO harden!!!
-        // let params2 = rabbitclient::RabbitConParams::builder()
-        //     .server("test_server")
-        //     .user("test_user")
-        //     .password("test_pwd")
-        //     .build();
-        // assert_eq!("test_server", params.server);
-        // assert_eq!("test_user", params.user);
-        // assert_eq!("test_pwd", params.password);
-        // assert_eq!(5672, params.port);
-        // assert_eq!(None, params.con_name);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
