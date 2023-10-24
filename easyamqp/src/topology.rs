@@ -6,7 +6,7 @@ use crate::rabbitclient::ClientImplCont;
 
 use amqprs::{
     callbacks::{ChannelCallback, ConnectionCallback},
-    channel::{Channel, ExchangeDeclareArguments},
+    channel::{Channel, ExchangeDeclareArguments, QueueDeclareArguments, QueueBindArguments},
     connection::{Connection, OpenConnectionArguments},
     Ack, BasicProperties, Cancel, Close, CloseChannel, Nack, Return,
 };
@@ -47,9 +47,9 @@ const EXCHANGE_TYPE_TOPIC:  &str = "topic";
 const EXCHANGE_TYPE_DIRECT:  &str = "direct";
 const EXCHANGE_TYPE_HEADERS:  &str = "headers";
 
-impl From<ExchangeType> for String {
-    fn from(value: ExchangeType) -> String {
-        match value {
+impl ToString for ExchangeType {
+    fn to_string(&self) -> String {
+        match self {
             ExchangeType::Fanout => EXCHANGE_TYPE_FANOUT.to_owned(),
             ExchangeType::Topic => EXCHANGE_TYPE_TOPIC.to_owned(),
             ExchangeType::Direct => EXCHANGE_TYPE_DIRECT.to_owned(),
@@ -87,21 +87,26 @@ pub struct QueueBindingDefinition {
     pub routing_key: String,
 }
 
-pub struct Topology {
+pub struct TopologyCont {
     pub exchanges: Vec<ExchangeDefinition>,
     pub queues: Vec<QueueDefinition>,
     pub bindings: Vec<QueueBindingDefinition>,
-    pub cont: Arc<Mutex<ClientImplCont>>,
 }
 
+pub struct Topology {
+    pub cont: Arc<Mutex<TopologyCont>>,
+    pub client_cont: Arc<Mutex<ClientImplCont>>,
+}
+
+
 impl Topology {
-    pub async fn declare_exchange(&self,params: ExchangeDefinition) -> Result<(), String> {
-        let mut guard = self.cont.lock().await;
+    pub async fn declare_exchange(&self,exchange_def: ExchangeDefinition) -> Result<(), String> {
+        let mut guard = self.client_cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
         match &client_cont.connection {
             Some(con) => {
                 if con.is_open() {
-                    return self.do_declare_exchange(&con, params).await;
+                    return self.do_declare_exchange(&con, exchange_def).await;
                 } else {
                     return Err("broker connection isn't open".to_string());
                 }
@@ -112,15 +117,109 @@ impl Topology {
         }
     }
 
-    pub async fn do_declare_exchange(&self,con: &Connection,params: ExchangeDefinition) -> Result<(), String> {
+    async fn do_declare_exchange(&self,con: &Connection, exchange_def: ExchangeDefinition) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
-        let type_str: String = params.exhange_type.into();
-        let mut args = ExchangeDeclareArguments::new(params.name.as_str(), type_str.as_str());
-        args.auto_delete = params.auto_delete;
-        args.durable = params.durable;
+        let type_str: String = exchange_def.exhange_type.to_string();
+        let mut args = ExchangeDeclareArguments::new(
+            exchange_def.name.as_str(), type_str.as_str());
+        args.auto_delete = exchange_def.auto_delete;
+        args.durable = exchange_def.durable;
         if let Err(e) = channel.exchange_declare(args).await {
             return Err(e.to_string());
         };
+        // if the exchange is of type auto_delete, maybe the topology needs to be restored
+        // after a connection loss
+        if exchange_def.auto_delete {
+            let mut guard = self.cont.lock().await;
+            let top_cont: &mut TopologyCont = &mut *guard;
+            top_cont.exchanges.push(exchange_def);
+        }
         Ok(())
     }
+
+    pub async fn declare_queue(&self, queue_def: QueueDefinition) -> Result<(), String> {
+        let mut guard = self.client_cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        match &client_cont.connection {
+            Some(con) => {
+                if con.is_open() {
+                    return self.do_declare_queue(&con, queue_def).await;
+                } else {
+                    return Err("broker connection isn't open".to_string());
+                }
+            },
+            None => {
+                return Err("no broker connection available".to_string());
+            }
+        }
+    }
+
+    async fn do_declare_queue(&self,con: &Connection, queue_def: QueueDefinition) -> Result<(), String> {
+        let channel = con.open_channel(None).await.unwrap();
+        let queue_name = queue_def.name.as_str();
+        let mut args = QueueDeclareArguments::new(queue_name
+            );
+        args.auto_delete(queue_def.auto_delete);
+        args.durable(queue_def.durable);
+        if let Err(e) = channel.queue_declare(args).await {
+            return Err(e.to_string());
+        };
+        // if the exchange is of type auto_delete, maybe the topology needs to be restored
+        // after a connection loss
+        if queue_def.auto_delete {
+            let mut guard = self.cont.lock().await;
+            let top_cont: &mut TopologyCont = &mut *guard;
+            top_cont.queues.push(queue_def);
+        }
+        Ok(())
+    }
+
+    pub async fn declare_queue_binding(&self, binding_def: QueueBindingDefinition) -> Result<(), String> {
+        let mut guard = self.client_cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        match &client_cont.connection {
+            Some(con) => {
+                if con.is_open() {
+                    return self.do_declare_queue_binding(&con, binding_def).await;
+                } else {
+                    return Err("broker connection isn't open".to_string());
+                }
+            },
+            None => {
+                return Err("no broker connection available".to_string());
+            }
+        }
+    }
+
+    async fn do_declare_queue_binding(&self,con: &Connection, binding_def: QueueBindingDefinition) -> Result<(), String> {
+        let channel = con.open_channel(None).await.unwrap();
+        let queue_name = binding_def.queue.clone();
+        let exchange_name = binding_def.exchange.clone();
+        let args = QueueBindArguments::new(
+            &binding_def.queue.as_str(),
+            &binding_def.exchange.as_str(),
+            &binding_def.routing_key.as_str());
+        if let Err(e) = channel.queue_bind(args).await {
+            return Err(e.to_string());
+        };
+        // if the exchange is of type auto_delete, maybe the topology needs to be restored
+        // after a connection loss
+        {
+            let mut guard = self.cont.lock().await;
+            let top_cont: &mut TopologyCont = &mut *guard;
+            let exchange_result = top_cont.exchanges
+                .iter()
+                .filter(|item| (item.name == exchange_name) && (item.auto_delete == true))
+                .next();
+            let queue_result = top_cont.queues
+                .iter()
+                .filter(|item| (item.name == queue_name) && (item.auto_delete == true))
+                .next();
+            if exchange_result.is_some() || queue_result.is_some() {
+                top_cont.bindings.push(binding_def);
+            }
+        }
+        Ok(())
+    }
+
 }

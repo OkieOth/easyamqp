@@ -22,6 +22,7 @@ use amqprs::{
 use crate::publisher::Publisher;
 use crate::subscriber::Subscriber;
 use crate::topology::Topology;
+use crate::topology::TopologyCont;
 use crate::topology::{ExchangeDefinition, ExchangeType, QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitConCallback;
 
@@ -39,8 +40,6 @@ pub struct RabbitConParams {
     /// Password used for authentication
     pub password: String,
 }
-
-
 
 pub struct RabbitClient {
     /// Optional Application identifier, when set used a part of BasicProperties
@@ -60,22 +59,26 @@ impl RabbitClient {
         let con_callback = RabbitConCallback {
             tx_cmd: tx_cmd.clone(),
         };
-        let contImpl = ClientImplCont {
+        let cont_impl = ClientImplCont {
             connection: None,
             tx_panic: None,
         };
-        let cont = Arc::new(Mutex::new(contImpl));
+        let top_impl = TopologyCont {
+            exchanges: Vec::new(),
+            queues: Vec::new(),
+            bindings: Vec::new(),
+        };
+        let c = Arc::new(Mutex::new(cont_impl));
+        let t = Arc::new(Mutex::new(top_impl));
         let ret = RabbitClient {
             app_id: None,
             con_params,
             tx_cmd,
             con_callback,
-            cont: cont.clone(),
+            cont: c.clone(),
             topology: Topology {
-                exchanges: Vec::new(),
-                queues: Vec::new(),
-                bindings: Vec::new(),
-                cont,
+                client_cont: c,
+                cont: t,
             }
         };
         ret.start_cmd_receiver_task(rx_cmd);
@@ -101,20 +104,16 @@ impl RabbitClient {
         client_cont.tx_panic = Some(tx_panic);
     }
 
-    pub async fn declare_exchange(&self, params: ExchangeDefinition) -> Result<(), String> {
-        return self.topology.declare_exchange(params).await;
+    pub async fn declare_exchange(&self, exchange_def: ExchangeDefinition) -> Result<(), String> {
+        return self.topology.declare_exchange(exchange_def).await;
     }
 
-    pub async fn declare_queue(&self, params: QueueDefinition) -> Result<(), String> {
-        // TODO
-        Ok(())
-        // return self.client_impl.create_exchange(params).await;
+    pub async fn declare_queue(&self, queue_def: QueueDefinition) -> Result<(), String> {
+        return self.topology.declare_queue(queue_def).await;
     }
 
-    pub async fn declare_queue_binding(&self, params: QueueBindingDefinition) -> Result<(), String> {
-        // TODO
-        Ok(())
-        // return self.client_impl.create_exchange(params).await;
+    pub async fn declare_queue_binding(&self, binding_def: QueueBindingDefinition) -> Result<(), String> {
+        return self.topology.declare_queue_binding(binding_def).await;
     }
 
 
