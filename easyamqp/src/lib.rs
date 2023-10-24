@@ -6,7 +6,8 @@ mod topology;
 pub mod utils;
 
 pub use rabbitclient::{RabbitConParams, RabbitConParamsBuilder, RabbitClient};
-pub use topology::{ExchangeDefinition, ExchangeType, QueueDefinition, QueueBindingDefinition};
+pub use topology::{ExchangeDefinition, ExchangeType, ExchangeDefinitionBuilder,
+    QueueDefinition, QueueDefinitionBuilder, QueueBindingDefinition};
 
 pub fn dummy() {
     println!("    Hello, from the lib!");

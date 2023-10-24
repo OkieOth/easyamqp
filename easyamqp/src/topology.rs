@@ -61,6 +61,14 @@ impl ExchangeDefinitionBuilder {
         self.auto_delete = auto_delete;
         self
     }
+    pub fn build(self) -> ExchangeDefinition {
+        ExchangeDefinition {
+            name: self.name,
+            exchange_type: self.exchange_type,
+            durable: self.durable,
+            auto_delete: self.auto_delete,
+        }
+    } 
 }
 
 #[derive(Debug, Clone, Default)]
@@ -112,6 +120,51 @@ pub struct QueueDefinition {
     pub auto_delete: bool,
 }
 
+impl QueueDefinition {
+    pub fn builder(queue_name: &str) -> QueueDefinitionBuilder {
+        QueueDefinitionBuilder::default().name(queue_name)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct QueueDefinitionBuilder {
+    name: String,
+    durable: bool,
+    exclusive: bool,
+    auto_delete: bool,
+}
+
+impl QueueDefinitionBuilder {
+    pub fn new(queue_name: &str) -> QueueDefinitionBuilder {
+        QueueDefinitionBuilder::default().name(queue_name)
+    }
+    pub fn name(mut self, queue_name: &str) -> QueueDefinitionBuilder {
+        self.name = queue_name.to_string();
+        self
+    }
+    pub fn durable(mut self, durable: bool) -> QueueDefinitionBuilder {
+        self.durable = durable;
+        self
+    }
+    pub fn exclusive(mut self, exclusive: bool) -> QueueDefinitionBuilder {
+        self.exclusive = exclusive;
+        self
+    }
+    pub fn auto_delete(mut self, auto_delete: bool) -> QueueDefinitionBuilder {
+        self.auto_delete = auto_delete;
+        self
+    }
+    pub fn build(self) -> QueueDefinition {
+        QueueDefinition {
+            name: self.name,
+            durable: self.durable,
+            exclusive: self.exclusive,
+            auto_delete: self.auto_delete,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, Default)]
 pub struct QueueBindingDefinition {
     /// Queue name. Default: "".
@@ -121,6 +174,16 @@ pub struct QueueBindingDefinition {
     /// Default: "".
     pub routing_key: String,
 }
+
+impl QueueBindingDefinition {
+    pub fn new(queue: &str, exchange: &str, routing_key: &str) -> QueueBindingDefinition {
+        QueueBindingDefinition { 
+            queue: queue.to_string(), 
+            exchange: exchange.to_string(), 
+            routing_key: routing_key.to_string() }
+    }
+}
+
 
 pub struct Topology {
     pub exchanges: Vec<ExchangeDefinition>,
