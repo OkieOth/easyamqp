@@ -138,46 +138,29 @@ fn create_exchange_test() {
         let password = get_env_var_str("RABBIT_PASSWORD", "guest");
         let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
         
-        let params = RabbitConParams {
-            con_name: None,
-            server: rabbit_server.clone(),
-            port: 5672,
-            user: user_name.clone(),
-            password: password.clone(),
-        };
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
 
         let mut client = RabbitClient::new(params).await;
         client.connect().await.unwrap();
-        let param1 = ExchangeDefinition {
-            name: "first".to_string(),
-            exhange_type: ExchangeType::Topic, 
-            durable: true,
-            auto_delete: false,
-        };
+        let param1 = ExchangeDefinition::builder("first")
+            .durable(true)
+            .build();
         client.declare_exchange(param1).await.unwrap();
 
-        let param2 = ExchangeDefinition {
-            name: "second".to_string(),
-            exhange_type: ExchangeType::Topic, 
-            durable: false,
-            auto_delete: false,
-        };
+        let param2 = ExchangeDefinition::builder("second")
+            .build();
         client.declare_exchange(param2).await.unwrap();
 
-        let param3 = ExchangeDefinition {
-            name: "third".to_string(),
-            exhange_type: ExchangeType::Topic, 
-            durable: false,
-            auto_delete: false,
-        };
+        let param3 = ExchangeDefinition::builder("third")
+            .build();
         client.declare_exchange(param3).await.unwrap();
 
-        let param4 = ExchangeDefinition {
-            name: "second".to_string(),
-            exhange_type: ExchangeType::Topic, 
-            durable: false,
-            auto_delete: false,
-        };
+        let param4 = ExchangeDefinition::builder("second")
+            .build();
         client.declare_exchange(param4).await.unwrap();
 
         client.close().await;
@@ -217,46 +200,36 @@ fn create_queues_test() {
         let password = get_env_var_str("RABBIT_PASSWORD", "guest");
         let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
 
-        let params = RabbitConParams {
-            con_name: None,
-            server: rabbit_server.clone(),
-            port: 5672,
-            user: user_name.clone(),
-            password: password.clone(),
-        };
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
 
         let mut client = RabbitClient::new(params).await;
         client.connect().await.unwrap();
-        let param1 = QueueDefinition {
-            name: "first_queue".to_string(),
-            exclusive: false,
-            durable: true,
-            auto_delete: false,
-        };
+
+        let param1 = QueueDefinition::builder("first_queue")
+            .durable(true)
+            .build();
         client.declare_queue(param1).await.unwrap();
 
-        let param2 = QueueDefinition {
-            name: "second_queue".to_string(),
-            exclusive: true,
-            durable: true,
-            auto_delete: false,
-        };
+        let param2 = QueueDefinition::builder("second_queue")
+            .exclusive(true)
+            .durable(true)
+            .build();
         client.declare_queue(param2).await.unwrap();
 
-        let param3 = QueueDefinition {
-            name: "third_queue".to_string(),
-            exclusive: true,
-            durable: true,
-            auto_delete: false,
-        };
+        let param3 = QueueDefinition::builder("third_queue")
+            .exclusive(true)
+            .durable(true)
+            .build();
         client.declare_queue(param3).await.unwrap();
 
-        let param4 = QueueDefinition {
-            name: "second_queue".to_string(),
-            exclusive: true,
-            durable: true,
-            auto_delete: false,
-        };
+        let param4 = QueueDefinition::builder("second_queue")
+            .exclusive(true)
+            .durable(true)
+            .build();
         client.declare_queue(param4).await.unwrap();
 
         client.close().await;
@@ -296,35 +269,24 @@ fn create_bindings_test() {
         let password = get_env_var_str("RABBIT_PASSWORD", "guest");
         let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
 
-        let params = RabbitConParams {
-            con_name: None,
-            server: rabbit_server.clone(),
-            port: 5672,
-            user: user_name.clone(),
-            password: password.clone(),
-        };
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
 
         let mut client = RabbitClient::new(params).await;
         client.connect().await.unwrap();
-        let param1 = QueueBindingDefinition {
-            queue: "first_queue".to_string(),
-            exchange: "first".to_string(),
-            routing_key: "*".to_string(),
-        };
+        let param1 = QueueBindingDefinition::new(
+            "first_queue", "first", "*");
         client.declare_queue_binding(param1).await.unwrap();
 
-        let param2 = QueueBindingDefinition {
-            queue: "second_queue".to_string(),
-            exchange: "second".to_string(),
-            routing_key: "second.#".to_string(),
-        };
+        let param2 = QueueBindingDefinition::new(
+            "second_queue", "second", "second.#");
         client.declare_queue_binding(param2).await.unwrap();
 
-        let param3 = QueueBindingDefinition {
-            queue: "third_queue".to_string(),
-            exchange: "third".to_string(),
-            routing_key: "third.*".to_string(),
-        };
+        let param3 = QueueBindingDefinition::new(
+            "third_queue", "third", "third.*");
         client.declare_queue_binding(param3).await.unwrap();
 
         let json_path1 = "$[?(@.source == 'first' && @.destination == 'first_queue')]";
