@@ -126,6 +126,21 @@ impl RabbitClient {
     }
 
 
+    /// Sends a panic message to the client host
+    async fn send_panic(cont: &Arc<Mutex<ClientImplCont>>) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        match &client_cont.tx_panic {
+            Some(tx) => {
+                debug!("send panic over channel");
+                let _ = tx.send(0).await;
+            },
+            None => {
+                warn!("would like to panic, but no panic channel sender is set");
+            }
+        }
+    }
+
     fn start_cmd_receiver_task(&self, mut rx_command: Receiver<ClientCommand>) {
         let con_params = self.con_params.clone();
         let con_callback = self.con_callback.clone();
@@ -143,17 +158,9 @@ impl RabbitClient {
                         };
                         debug!("connection object reseted");
                         if let Err(_) = RabbitClient::do_connect(&con_params,con_callback.clone(),&cont,4).await {
-                            let mut guard = cont.lock().await;
-                            let client_cont: &mut ClientImplCont = &mut *guard;
-                            match &client_cont.tx_panic {
-                                Some(tx) => {
-                                    debug!("send panic over channel");
-                                    let _ = tx.send(0).await;
-                                },
-                                None => {
-                                    warn!("would like to panic, but no panic channel sender is set");
-                                }
-                            }
+                            RabbitClient::send_panic(&cont).await;
+                        } else {
+                            
                         }
                     }
                 }

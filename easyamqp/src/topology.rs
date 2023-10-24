@@ -157,8 +157,7 @@ impl Topology {
     async fn do_declare_queue(&self,con: &Connection, queue_def: QueueDefinition) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
         let queue_name = queue_def.name.as_str();
-        let mut args = QueueDeclareArguments::new(queue_name
-            );
+        let mut args = QueueDeclareArguments::new(queue_name);
         args.auto_delete(queue_def.auto_delete);
         args.durable(queue_def.durable);
         if let Err(e) = channel.queue_declare(args).await {
