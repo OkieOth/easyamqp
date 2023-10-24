@@ -1,6 +1,6 @@
 use env_logger::Env;
 use easyamqp::{RabbitClient, RabbitConParams};
-use log::{debug, error, info, warn};
+use log::info;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 

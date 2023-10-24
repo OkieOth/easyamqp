@@ -1,14 +1,7 @@
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
-
-use crate::rabbitclient::ClientImplCont;
 
 use amqprs::{
-    callbacks::{ChannelCallback, ConnectionCallback},
-    channel::{Channel, ExchangeDeclareArguments, QueueDeclareArguments, QueueBindArguments},
-    connection::{Connection, OpenConnectionArguments},
-    Ack, BasicProperties, Cancel, Close, CloseChannel, Nack, Return,
+    channel::{ExchangeDeclareArguments, QueueDeclareArguments, QueueBindArguments},
+    connection::Connection,
 };
 
 
@@ -95,6 +88,16 @@ pub struct Topology {
 
 
 impl Topology {
+    pub async fn declare_all_exchanges(&self) -> Result<(), String> {
+        Ok(())
+    }
+    pub async fn declare_all_queues(&self) -> Result<(), String> {
+        Ok(())
+    }
+    pub async fn declare_all_bindings(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     pub async fn declare_exchange(&mut self,exchange_def: ExchangeDefinition, con: &Connection) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
         let type_str: String = exchange_def.exhange_type.to_string();

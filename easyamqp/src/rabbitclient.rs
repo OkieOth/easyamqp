@@ -11,18 +11,13 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use amqprs::{
-    callbacks::{ChannelCallback, ConnectionCallback},
-    channel::{Channel, ExchangeDeclareArguments},
-    connection::{Connection, OpenConnectionArguments},
-    Ack, BasicProperties, Cancel, Close, CloseChannel, Nack, Return,
-};
+use amqprs::connection::{Connection, OpenConnectionArguments};
 
 
 use crate::publisher::Publisher;
 use crate::subscriber::Subscriber;
 use crate::topology::Topology;
-use crate::topology::{ExchangeDefinition, ExchangeType, QueueDefinition, QueueBindingDefinition};
+use crate::topology::{ExchangeDefinition, QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitConCallback;
 
 /// Container for the connection parameters for the broker connection
@@ -65,6 +60,7 @@ impl RabbitClient {
             connection: None,
             tx_panic: None,
             topology: top,
+            max_reconnect_attempts: 3,
         };
         let c = Arc::new(Mutex::new(cont_impl));
         let ret = RabbitClient {
@@ -128,11 +124,11 @@ impl RabbitClient {
     }
 
 
-    pub async fn new_publisher(&self, exchange_params: ExchangeDefinition) -> Result<Publisher, String> {
+    pub async fn new_publisher(&self, _exchange_params: ExchangeDefinition) -> Result<Publisher, String> {
         Err("TODO".to_string())
     }
 
-    pub async fn new_subscriber(&self, exchange_params: ExchangeDefinition, queue_params: QueueDefinition) -> Result<Subscriber, String> {
+    pub async fn new_subscriber(&self, _exchange_params: ExchangeDefinition, queue_params: QueueDefinition) -> Result<Subscriber, String> {
         Err("TODO".to_string())
     }
 
@@ -152,8 +148,34 @@ impl RabbitClient {
         }
     }
 
-    async fn recreate_topology(client_cont: &Arc<Mutex<ClientImplCont>>) {
+    async fn recreate_topology(cont: &Arc<Mutex<ClientImplCont>>) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
 
+        let mut reconnect_seconds = 1;
+        let mut reconnect_attempts: u8 = 0;
+        let mut success: bool;
+        loop {
+            success = client_cont.topology.declare_all_exchanges().await.is_ok() &&
+            client_cont.topology.declare_all_queues().await.is_ok() &&
+            client_cont.topology.declare_all_bindings().await.is_ok();
+            if ! success {
+                if reconnect_attempts > client_cont.max_reconnect_attempts {
+                    error!("reached maximum attempts ({}) to reestablish topology, and stop trying",
+                        reconnect_attempts);
+                        RabbitClient::send_panic(cont).await;
+                        break;
+                } else {
+                    let sleep_time = time::Duration::from_secs(reconnect_seconds);
+                    debug!("sleep for {} seconds before try to reestablish topology ...",reconnect_seconds);
+                    thread::sleep(sleep_time);
+                    reconnect_seconds = reconnect_seconds * 2;
+                    reconnect_attempts += 1;
+                }
+            } else {
+                break;
+            }
+        }
     }
 
     fn start_cmd_receiver_task(&self, mut rx_command: Receiver<ClientCommand>) {
@@ -201,16 +223,17 @@ impl RabbitClient {
                     return Ok(());
                 },
                 Err(s) => {
-                    warn!("error to connect: {}", s);
-                    let sleep_time = time::Duration::from_secs(reconnect_seconds);
-                    debug!("sleep for {} seconds before try to reconnect ...",reconnect_seconds);
-                    thread::sleep(sleep_time);
-                    reconnect_seconds = reconnect_seconds * 2;
-                    reconnect_attempts += 1;
                     if reconnect_attempts > max_reconnect_attempts {
                         return Err(format!(
                             "reached maximum reconnection attempts ({}), and stop trying",
                             reconnect_attempts));
+                    } else {
+                        warn!("error to connect: {}", s);
+                        let sleep_time = time::Duration::from_secs(reconnect_seconds);
+                        debug!("sleep for {} seconds before try to reconnect ...",reconnect_seconds);
+                        thread::sleep(sleep_time);
+                        reconnect_seconds = reconnect_seconds * 2;
+                        reconnect_attempts += 1;
                     }
                 }
             }
@@ -251,6 +274,7 @@ pub struct ClientImplCont {
     topology: Topology,
     pub connection: Option<Connection>,
     pub tx_panic: Option<Sender<u32>>,
+    max_reconnect_attempts: u8,
 }
 
 pub enum ClientCommand {
