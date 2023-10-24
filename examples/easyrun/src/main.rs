@@ -10,7 +10,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 fn get_exchange_def1() -> ExchangeDefinition {
     ExchangeDefinition { 
         name: "test_e_1".to_string(), 
-        exhange_type: ExchangeType::Topic, 
+        exchange_type: ExchangeType::Topic, 
         durable: false, 
         auto_delete: true }
 }
@@ -18,7 +18,7 @@ fn get_exchange_def1() -> ExchangeDefinition {
 fn get_exchange_def2() -> ExchangeDefinition {
     ExchangeDefinition { 
         name: "test_e_2".to_string(), 
-        exhange_type: ExchangeType::Topic, 
+        exchange_type: ExchangeType::Topic, 
         durable: false, 
         auto_delete: true }
 }
@@ -26,7 +26,7 @@ fn get_exchange_def2() -> ExchangeDefinition {
 fn get_exchange_def3() -> ExchangeDefinition {
     ExchangeDefinition { 
         name: "test_e_3".to_string(), 
-        exhange_type: ExchangeType::Topic, 
+        exchange_type: ExchangeType::Topic, 
         durable: false, 
         auto_delete: true }
 }

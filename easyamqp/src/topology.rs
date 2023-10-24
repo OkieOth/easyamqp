@@ -12,13 +12,55 @@ pub struct ExchangeDefinition {
     pub name: String,
 
     /// The type of the exchange, indicating how it routes messages to queues.
-    pub exhange_type: ExchangeType,
+    pub exchange_type: ExchangeType,
 
     /// Specifies whether the exchange should survive server restarts.
     pub durable: bool,
 
     /// Indicates whether the exchange should be deleted when it's no longer in use.
     pub auto_delete: bool,
+}
+
+impl ExchangeDefinition {
+    pub fn builder(exchange_name: &str) -> ExchangeDefinitionBuilder {
+        ExchangeDefinitionBuilder::default().name(exchange_name)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ExchangeDefinitionBuilder {
+    name: String,
+
+    /// The type of the exchange, indicating how it routes messages to queues.
+    exchange_type: ExchangeType,
+
+    /// Specifies whether the exchange should survive server restarts.
+    durable: bool,
+
+    /// Indicates whether the exchange should be deleted when it's no longer in use.
+    auto_delete: bool,
+}
+
+impl ExchangeDefinitionBuilder {
+    pub fn new(exchange_name: &str) -> ExchangeDefinitionBuilder {
+        ExchangeDefinitionBuilder::default().name(exchange_name)
+    }
+    pub fn name(mut self, exchange_name: &str) -> ExchangeDefinitionBuilder {
+        self.name = exchange_name.to_string();
+        self
+    }
+    pub fn exchange_type(mut self, exchange_type: ExchangeType) -> ExchangeDefinitionBuilder {
+        self.exchange_type = exchange_type;
+        self
+    }
+    pub fn durable(mut self, durable: bool) -> ExchangeDefinitionBuilder {
+        self.durable = durable;
+        self
+    }
+    pub fn auto_delete(mut self, auto_delete: bool) -> ExchangeDefinitionBuilder {
+        self.auto_delete = auto_delete;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,7 +142,7 @@ impl Topology {
 
     pub async fn declare_exchange(&mut self,exchange_def: ExchangeDefinition, con: &Connection) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
-        let type_str: String = exchange_def.exhange_type.to_string();
+        let type_str: String = exchange_def.exchange_type.to_string();
         let mut args = ExchangeDeclareArguments::new(
             exchange_def.name.as_str(), type_str.as_str());
         args.auto_delete = exchange_def.auto_delete;

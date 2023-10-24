@@ -3,7 +3,6 @@
 //! factory to create internally the needed connection objects. In addition it is used the
 //! create workers on the connection that can be used for publishing and subscribing of data.
 use log::{debug, error, info, warn};
-use std::default;
 use std::sync::Arc;
 use std::time;
 use std::thread;
@@ -45,15 +44,15 @@ impl RabbitConParams {
 #[derive(Debug, Clone, Default)]
 pub struct RabbitConParamsBuilder {
     /// Connection name
-    pub con_name: Option<String>,
+    con_name: Option<String>,
     /// Server name or IP address to connect to
-    pub server: Option<String>,
+    server: Option<String>,
     /// Port of the RabbitMq server
-    pub port: u16,
+    port: u16,
     /// User used for authentication
-    pub user: Option<String>,
+    user: Option<String>,
     /// Password used for authentication
-    pub password: Option<String>,
+    password: Option<String>,
 }
 
 impl RabbitConParamsBuilder {

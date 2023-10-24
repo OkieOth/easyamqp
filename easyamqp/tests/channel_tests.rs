@@ -148,7 +148,7 @@ fn create_exchange_test() {
         client.connect().await.unwrap();
         let param1 = ExchangeDefinition {
             name: "first".to_string(),
-            exhange_type: ExchangeType::Topic, 
+            exchange_type: ExchangeType::Topic, 
             durable: true,
             auto_delete: false,
         };
@@ -156,7 +156,7 @@ fn create_exchange_test() {
 
         let param2 = ExchangeDefinition {
             name: "second".to_string(),
-            exhange_type: ExchangeType::Topic, 
+            exchange_type: ExchangeType::Topic, 
             durable: false,
             auto_delete: false,
         };
@@ -164,7 +164,7 @@ fn create_exchange_test() {
 
         let param3 = ExchangeDefinition {
             name: "third".to_string(),
-            exhange_type: ExchangeType::Topic, 
+            exchange_type: ExchangeType::Topic, 
             durable: false,
             auto_delete: false,
         };
@@ -172,7 +172,7 @@ fn create_exchange_test() {
 
         let param4 = ExchangeDefinition {
             name: "second".to_string(),
-            exhange_type: ExchangeType::Topic, 
+            exchange_type: ExchangeType::Topic, 
             durable: false,
             auto_delete: false,
         };
