@@ -5,12 +5,33 @@ services:
     ports:
       - "5672:5672"   # AMQP port
       - "15672:15672" # RabbitMQ management console port
+    networks:
+      - test_network
+
   init_rabbitmq:
     image: rabbitmq:3.11.19-management-alpine
-    entrypoint: /init_test_broker.sh
+    networks:
+      - test_network
     environment:
       - RABBIT_SERVER=rabbitmq
     volumes:
       - "./bin/init_test_broker.sh:/init_test_broker.sh"
     depends_on:
       - rabbitmq
+
+  test_runner:
+    build:
+      context: .
+      args:
+        DOCKER_BUILDKIT: 1
+      dockerfile: Dockerfile.testrunner
+    depends_on:
+      - init_rabbitmq
+    environment:
+      - RABBIT_SERVER=rabbitmq
+    networks:
+      - test_network
+
+networks:
+  test_network:
+    driver: bridge

@@ -7,4 +7,4 @@ COPY ./assets/rabbitmqadmin /usr/bin/rabbitmqadmin
 
 RUN cargo test
 
-CMD ["cargo", "test", "connection_loss", "--", "--ignored", " --nocapture"]
+CMD ["cargo", "test", "", "--", "--ignored", " --nocapture"]
