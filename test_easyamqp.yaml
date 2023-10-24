@@ -12,6 +12,12 @@ services:
     image: rabbitmq:3.11.19-management-alpine
     networks:
       - test_network
+    environment:
+      - RABBIT_SERVER=rabbitmq
+    volumes:
+      - "./bin/init_test_broker.sh:/init_test_broker.sh"
+    depends_on:
+      - rabbitmq
 
   test_runner:
     build:
