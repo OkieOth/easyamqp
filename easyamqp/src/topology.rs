@@ -71,7 +71,7 @@ impl ExchangeDefinitionBuilder {
     } 
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 /// Supported types of Exchanges
 pub enum ExchangeType {
     /// Fanout exchange
@@ -265,6 +265,61 @@ impl Topology {
             }
         }
         Ok(())
+    }
+
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::topology;
+
+    #[test]
+    fn exchangedefinition_builder_test() {
+        let param1 = topology::ExchangeDefinition::builder("first")
+            .durable(true)
+            .build();
+        assert_eq!("first", param1.name);
+        assert_eq!(true, param1.durable);
+        assert_eq!(topology::ExchangeType::Topic, param1.exchange_type);
+        assert_eq!(false, param1.auto_delete);
+
+        let param2 = topology::ExchangeDefinition::builder("x")
+            .exchange_type(topology::ExchangeType::Fanout)
+            .auto_delete(true)
+            .build();
+        assert_eq!("x", param2.name);
+        assert_eq!(false, param2.durable);
+        assert_eq!(topology::ExchangeType::Fanout, param2.exchange_type);
+        assert_eq!(true, param2.auto_delete);
+    }
+
+    #[test]
+    fn queuedefinition_builder_test() {
+        let param1 = topology::QueueDefinition::builder("first_queue")
+            .durable(true)
+            .build();
+        assert_eq!("first_queue", param1.name);
+        assert_eq!(true, param1.durable);
+        assert_eq!(false, param1.exclusive);
+        assert_eq!(false, param1.auto_delete);
+
+        let param2 = topology::QueueDefinition::builder("second_queue")
+            .exclusive(true)
+            .durable(true)
+            .build();
+        assert_eq!("second_queue", param2.name);
+        assert_eq!(true, param2.durable);
+        assert_eq!(true, param2.exclusive);
+        assert_eq!(false, param2.auto_delete);
+    }
+
+    #[test]
+    fn queuebindingsdefinition_builder_test() {
+        let param1 = topology::QueueBindingDefinition::new(
+            "second_queue", "second", "second.#");
+        assert_eq!("second_queue", param1.queue);
+        assert_eq!("second", param1.exchange);
+        assert_eq!("second.#", param1.routing_key);
     }
 
 }
