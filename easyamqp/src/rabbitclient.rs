@@ -15,10 +15,12 @@ use amqprs::connection::{Connection, OpenConnectionArguments};
 
 
 use crate::publisher::Publisher;
+use crate::publisher::PublisherParams;
 use crate::subscriber::Subscriber;
 use crate::topology::Topology;
 use crate::topology::{ExchangeDefinition, QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitConCallback;
+use crate::worker::Worker;
 
 /// Container for the connection parameters for the broker connection
 #[derive(Debug, Clone, Default)]
@@ -118,6 +120,8 @@ impl RabbitClient {
             tx_panic: None,
             topology: top,
             max_reconnect_attempts: 3,
+            workers: Vec::new(),
+            max_worker_id: 0,
         };
         let c = Arc::new(Mutex::new(cont_impl));
         let ret = RabbitClient {
@@ -136,7 +140,19 @@ impl RabbitClient {
     }
 
     pub async fn close(&self) {
-        // TODO
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        if client_cont.connection.is_some() {
+            {
+                let c = client_cont.connection.as_mut().unwrap().clone();
+                if let Err(e) = c.close().await {
+                    error!("error while close connection: {}", e.to_string())
+                }
+            }
+            client_cont.connection = None;
+        } else {
+            warn!("connection is None ... nothing to close");
+        }
     }
 
     pub async fn dummy(&self, id: u32) -> Result<String, ()> {
@@ -144,7 +160,7 @@ impl RabbitClient {
         return Ok(r);
     }
 
-    pub async fn set_panic_sender(&self, tx_panic: Sender<u32>) {
+    pub async fn set_panic_sender(&self, tx_panic: Sender<String>) {
         let mut guard = self.cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
         client_cont.tx_panic = Some(tx_panic);
@@ -181,8 +197,32 @@ impl RabbitClient {
     }
 
 
-    pub async fn new_publisher(&self, _exchange_params: ExchangeDefinition) -> Result<Publisher, String> {
-        Err("TODO".to_string())
+    pub async fn new_publisher_from_params(&self, params: PublisherParams) -> Result<Publisher, String> {
+        debug!("new_publisher_from_params is wating for lock ...");
+        let mut guard = self.cont.lock().await;
+        debug!("new_publisher_from_params got lock");
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.max_worker_id += 1;
+
+        match Publisher::new(client_cont.max_worker_id, params, self.tx_cmd.clone()).await {
+            Ok(publisher) => {
+                client_cont.workers.push(publisher.worker.clone());
+                if let Err(e) = self.tx_cmd.send(ClientCommand::GetChannel(client_cont.max_worker_id)).await {
+                    error!("error while sending GetChannel command for worker (id={}): {}", client_cont.max_worker_id, e.to_string());
+                    Err(e.to_string())
+                } else {
+                    Ok(publisher)
+                }
+            },
+            Err(msg) => {
+                return Err(msg);
+            },
+        }
+    }
+
+    pub async fn new_publisher(&self) -> Result<Publisher, String> {
+        let params = PublisherParams::builder().build();
+        self.new_publisher_from_params(params).await
     }
 
     pub async fn new_subscriber(&self, _exchange_params: ExchangeDefinition, queue_params: QueueDefinition) -> Result<Subscriber, String> {
@@ -191,17 +231,55 @@ impl RabbitClient {
 
 
     /// Sends a panic message to the client host
-    async fn send_panic(cont: &Arc<Mutex<ClientImplCont>>) {
+    async fn send_panic(panic_msg: String, cont: &Arc<Mutex<ClientImplCont>>) {
         let mut guard = cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
         match &client_cont.tx_panic {
             Some(tx) => {
                 debug!("send panic over channel");
-                let _ = tx.send(0).await;
+                let _ = tx.send(panic_msg).await;
             },
             None => {
                 warn!("would like to panic, but no panic channel sender is set");
             }
+        }
+    }
+
+    async fn provide_channel(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        let mut found = false;
+        for w in client_cont.workers.iter() {
+            let mut worker_guard = w.lock().await;
+            let worker: &mut Worker = &mut *worker_guard;
+            if worker.id == id {
+                found = true;
+                if client_cont.connection.is_some() {
+                    let connection = client_cont.connection.as_ref().unwrap();
+                    match connection.open_channel(None).await {
+                        Ok(channel) => {
+                            channel
+                                .register_callback(worker.callback.clone())
+                                .await
+                                .unwrap();
+                            worker.channel = Some(channel);
+                        }
+                        Err(e) => {
+                            error!(
+                                "error while creating channel for worker (id={}): {}",
+                                id,
+                                e.to_string()
+                            );
+                        }
+                    }
+
+                } else {
+                    warn!("no connection, unable to provide channel for worker (id={})", id);
+                }
+            }
+        }
+        if ! found {
+            warn!("didn't find worker (id={}) to provide a channel", id);
         }
     }
 
@@ -218,10 +296,11 @@ impl RabbitClient {
             client_cont.topology.declare_all_bindings().await.is_ok();
             if ! success {
                 if reconnect_attempts > client_cont.max_reconnect_attempts {
-                    error!("reached maximum attempts ({}) to reestablish topology, and stop trying",
-                        reconnect_attempts);
-                        RabbitClient::send_panic(cont).await;
-                        break;
+                    let msg = format!("reached maximum attempts ({}) to reestablish topology, and stop trying",
+                    reconnect_attempts);
+                    error!("{}", msg);
+                    RabbitClient::send_panic(msg, cont).await;
+                    break;
                 } else {
                     let sleep_time = time::Duration::from_secs(reconnect_seconds);
                     debug!("sleep for {} seconds before try to reestablish topology ...",reconnect_seconds);
@@ -231,6 +310,22 @@ impl RabbitClient {
                 }
             } else {
                 break;
+            }
+        }
+    }
+
+    async fn recreate_channel(cont: &Arc<Mutex<ClientImplCont>>) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+
+        for w in client_cont.workers.iter() {
+            let mut worker_guard = w.lock().await;
+            let worker: &mut Worker = &mut *worker_guard;
+            if worker.channel.is_some() {
+                worker.channel = None;
+            }
+            if let Err(e) = worker.callback.tx_req.send(ClientCommand::GetChannel(worker.id)).await {
+                error!("error while requesting channel for worker (id={})", worker.id);
             }
         }
     }
@@ -251,11 +346,16 @@ impl RabbitClient {
                             client_cont.connection = None;
                         };
                         debug!("connection object reseted");
-                        if let Err(_) = RabbitClient::do_connect(&con_params,con_callback.clone(),&cont,4).await {
-                            RabbitClient::send_panic(&cont).await;
+                        if let Err(s) = RabbitClient::do_connect(&con_params,con_callback.clone(),&cont,4).await {
+                            RabbitClient::send_panic(s, &cont).await;
                         } else {
                             RabbitClient::recreate_topology(&cont).await;
+                            RabbitClient::recreate_channel(&cont).await;
                         }
+                    },
+                    ClientCommand::GetChannel(id) => {
+                        debug!("received a get channel request for id={}", id);
+                        RabbitClient::provide_channel(&cont, id).await
                     }
                 }
             }
@@ -330,18 +430,22 @@ impl RabbitClient {
 pub struct ClientImplCont {
     topology: Topology,
     pub connection: Option<Connection>,
-    pub tx_panic: Option<Sender<u32>>,
+    pub tx_panic: Option<Sender<String>>,
     max_reconnect_attempts: u8,
+    workers: Vec<Arc<Mutex<Worker>>>,
+    max_worker_id: u32,
 }
 
 pub enum ClientCommand {
     Connect,
+    GetChannel(u32),
 }
 
 impl std::fmt::Display for ClientCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientCommand::Connect => write!(f, "Connect"),
+            ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
         }
     }
 }
@@ -363,6 +467,21 @@ mod tests {
         assert_eq!("test_pwd", params.password);
         assert_eq!(5672, params.port);
         assert_eq!(None, params.con_name);
+
+        let params2 = rabbitclient::RabbitConParams::builder()
+            .server("test_server2")
+            .user("test_user2")
+            .password("test_pwd2")
+            .con_name("test_con")
+            .port(4242)
+            .build();
+
+        assert_eq!("test_server2", params2.server);
+        assert_eq!("test_user2", params2.user);
+        assert_eq!("test_pwd2", params2.password);
+        assert_eq!(4242, params2.port);
+        assert_eq!(Some("test_con".to_string()), params2.con_name);
+
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
