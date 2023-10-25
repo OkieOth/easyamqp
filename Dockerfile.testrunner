@@ -1,9 +1,11 @@
-FROM rust:latest as build
+FROM rabbitmq:3.11.19-management-alpine as build
+
+FROM rust:latest
 
 WORKDIR /usr/src/app
 
 COPY . .
-COPY ./assets/rabbitmqadmin /usr/bin/rabbitmqadmin
+COPY --from=build /usr/local/bin/rabbitmqadmin /usr/bin/rabbitmqadmin
 
 RUN cargo test
 
