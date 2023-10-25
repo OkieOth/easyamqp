@@ -117,7 +117,7 @@ fn main() {
         .build()
         .unwrap()
         .block_on(async {
-            let (tx_panic, mut rx_panic): (Sender<u32>, Receiver<u32>) = mpsc::channel(1);
+            let (tx_panic, mut rx_panic): (Sender<String>, Receiver<String>) = mpsc::channel(1);
 
             info!("started 1");
             let mut client = RabbitClient::new(params).await;
@@ -162,8 +162,12 @@ fn main() {
             let p20 = client.new_publisher().await.unwrap();
 
             info!("started 3");
-            let _ = rx_panic.recv().await;
-            info!("started 4");
+            match rx_panic.recv().await {
+                Some(msg) => info!("Received panic request: {}", msg),
+                None => info!("Received panic request w/o message"),
+            }
+
+            info!("done.");
         });
 }
 

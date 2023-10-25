@@ -160,7 +160,7 @@ impl RabbitClient {
         return Ok(r);
     }
 
-    pub async fn set_panic_sender(&self, tx_panic: Sender<u32>) {
+    pub async fn set_panic_sender(&self, tx_panic: Sender<String>) {
         let mut guard = self.cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
         client_cont.tx_panic = Some(tx_panic);
@@ -231,13 +231,13 @@ impl RabbitClient {
 
 
     /// Sends a panic message to the client host
-    async fn send_panic(cont: &Arc<Mutex<ClientImplCont>>) {
+    async fn send_panic(panic_msg: String, cont: &Arc<Mutex<ClientImplCont>>) {
         let mut guard = cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
         match &client_cont.tx_panic {
             Some(tx) => {
                 debug!("send panic over channel");
-                let _ = tx.send(0).await;
+                let _ = tx.send(panic_msg).await;
             },
             None => {
                 warn!("would like to panic, but no panic channel sender is set");
@@ -296,10 +296,11 @@ impl RabbitClient {
             client_cont.topology.declare_all_bindings().await.is_ok();
             if ! success {
                 if reconnect_attempts > client_cont.max_reconnect_attempts {
-                    error!("reached maximum attempts ({}) to reestablish topology, and stop trying",
-                        reconnect_attempts);
-                        RabbitClient::send_panic(cont).await;
-                        break;
+                    let msg = format!("reached maximum attempts ({}) to reestablish topology, and stop trying",
+                    reconnect_attempts);
+                    error!("{}", msg);
+                    RabbitClient::send_panic(msg, cont).await;
+                    break;
                 } else {
                     let sleep_time = time::Duration::from_secs(reconnect_seconds);
                     debug!("sleep for {} seconds before try to reestablish topology ...",reconnect_seconds);
@@ -345,8 +346,8 @@ impl RabbitClient {
                             client_cont.connection = None;
                         };
                         debug!("connection object reseted");
-                        if let Err(_) = RabbitClient::do_connect(&con_params,con_callback.clone(),&cont,4).await {
-                            RabbitClient::send_panic(&cont).await;
+                        if let Err(s) = RabbitClient::do_connect(&con_params,con_callback.clone(),&cont,4).await {
+                            RabbitClient::send_panic(s, &cont).await;
                         } else {
                             RabbitClient::recreate_topology(&cont).await;
                             RabbitClient::recreate_channel(&cont).await;
@@ -429,7 +430,7 @@ impl RabbitClient {
 pub struct ClientImplCont {
     topology: Topology,
     pub connection: Option<Connection>,
-    pub tx_panic: Option<Sender<u32>>,
+    pub tx_panic: Option<Sender<String>>,
     max_reconnect_attempts: u8,
     workers: Vec<Arc<Mutex<Worker>>>,
     max_worker_id: u32,
