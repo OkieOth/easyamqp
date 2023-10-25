@@ -15,10 +15,12 @@ use amqprs::connection::{Connection, OpenConnectionArguments};
 
 
 use crate::publisher::Publisher;
+use crate::publisher::PublisherParams;
 use crate::subscriber::Subscriber;
 use crate::topology::Topology;
 use crate::topology::{ExchangeDefinition, QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitConCallback;
+use crate::worker::Worker;
 
 /// Container for the connection parameters for the broker connection
 #[derive(Debug, Clone, Default)]
@@ -118,6 +120,8 @@ impl RabbitClient {
             tx_panic: None,
             topology: top,
             max_reconnect_attempts: 3,
+            workers: Vec::new(),
+            max_worker_id: 0,
         };
         let c = Arc::new(Mutex::new(cont_impl));
         let ret = RabbitClient {
@@ -136,7 +140,19 @@ impl RabbitClient {
     }
 
     pub async fn close(&self) {
-        // TODO
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        if client_cont.connection.is_some() {
+            {
+                let c = client_cont.connection.as_mut().unwrap().clone();
+                if let Err(e) = c.close().await {
+                    error!("error while close connection: {}", e.to_string())
+                }
+            }
+            client_cont.connection = None;
+        } else {
+            warn!("connection is None ... nothing to close");
+        }
     }
 
     pub async fn dummy(&self, id: u32) -> Result<String, ()> {
@@ -181,8 +197,32 @@ impl RabbitClient {
     }
 
 
-    pub async fn new_publisher(&self, _exchange_params: ExchangeDefinition) -> Result<Publisher, String> {
-        Err("TODO".to_string())
+    pub async fn new_publisher_from_params(&self, params: PublisherParams) -> Result<Publisher, String> {
+        debug!("new_publisher_from_params is wating for lock ...");
+        let mut guard = self.cont.lock().await;
+        debug!("new_publisher_from_params got lock");
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.max_worker_id += 1;
+
+        match Publisher::new(client_cont.max_worker_id, params, self.tx_cmd.clone()).await {
+            Ok(publisher) => {
+                client_cont.workers.push(publisher.worker.clone());
+                if let Err(e) = self.tx_cmd.send(ClientCommand::GetChannel(client_cont.max_worker_id)).await {
+                    error!("error while sending GetChannel command for worker (id={}): {}", client_cont.max_worker_id, e.to_string());
+                    Err(e.to_string())
+                } else {
+                    Ok(publisher)
+                }
+            },
+            Err(msg) => {
+                return Err(msg);
+            },
+        }
+    }
+
+    pub async fn new_publisher(&self) -> Result<Publisher, String> {
+        let params = PublisherParams::builder().build();
+        self.new_publisher_from_params(params).await
     }
 
     pub async fn new_subscriber(&self, _exchange_params: ExchangeDefinition, queue_params: QueueDefinition) -> Result<Subscriber, String> {
@@ -202,6 +242,44 @@ impl RabbitClient {
             None => {
                 warn!("would like to panic, but no panic channel sender is set");
             }
+        }
+    }
+
+    async fn provide_channel(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        let mut found = false;
+        for w in client_cont.workers.iter() {
+            let mut worker_guard = w.lock().await;
+            let worker: &mut Worker = &mut *worker_guard;
+            if worker.id == id {
+                found = true;
+                if client_cont.connection.is_some() {
+                    let connection = client_cont.connection.as_ref().unwrap();
+                    match connection.open_channel(None).await {
+                        Ok(channel) => {
+                            channel
+                                .register_callback(worker.callback.clone())
+                                .await
+                                .unwrap();
+                            worker.channel = Some(channel);
+                        }
+                        Err(e) => {
+                            error!(
+                                "error while creating channel for worker (id={}): {}",
+                                id,
+                                e.to_string()
+                            );
+                        }
+                    }
+
+                } else {
+                    warn!("no connection, unable to provide channel for worker (id={})", id);
+                }
+            }
+        }
+        if ! found {
+            warn!("didn't find worker (id={}) to provide a channel", id);
         }
     }
 
@@ -235,6 +313,22 @@ impl RabbitClient {
         }
     }
 
+    async fn recreate_channel(cont: &Arc<Mutex<ClientImplCont>>) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+
+        for w in client_cont.workers.iter() {
+            let mut worker_guard = w.lock().await;
+            let worker: &mut Worker = &mut *worker_guard;
+            if worker.channel.is_some() {
+                worker.channel = None;
+            }
+            if let Err(e) = worker.callback.tx_req.send(ClientCommand::GetChannel(worker.id)).await {
+                error!("error while requesting channel for worker (id={})", worker.id);
+            }
+        }
+    }
+
     fn start_cmd_receiver_task(&self, mut rx_command: Receiver<ClientCommand>) {
         let con_params = self.con_params.clone();
         let con_callback = self.con_callback.clone();
@@ -255,7 +349,12 @@ impl RabbitClient {
                             RabbitClient::send_panic(&cont).await;
                         } else {
                             RabbitClient::recreate_topology(&cont).await;
+                            RabbitClient::recreate_channel(&cont).await;
                         }
+                    },
+                    ClientCommand::GetChannel(id) => {
+                        debug!("received a get channel request for id={}", id);
+                        RabbitClient::provide_channel(&cont, id).await
                     }
                 }
             }
@@ -332,16 +431,20 @@ pub struct ClientImplCont {
     pub connection: Option<Connection>,
     pub tx_panic: Option<Sender<u32>>,
     max_reconnect_attempts: u8,
+    workers: Vec<Arc<Mutex<Worker>>>,
+    max_worker_id: u32,
 }
 
 pub enum ClientCommand {
     Connect,
+    GetChannel(u32),
 }
 
 impl std::fmt::Display for ClientCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientCommand::Connect => write!(f, "Connect"),
+            ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
         }
     }
 }

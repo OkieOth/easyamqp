@@ -1,7 +1,8 @@
 use env_logger::Env;
 use easyamqp::{RabbitClient, RabbitConParams,
     ExchangeDefinition, ExchangeType, 
-    QueueDefinition, QueueBindingDefinition};
+    QueueDefinition, QueueBindingDefinition,
+    Publisher};
 use log::info;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -138,6 +139,27 @@ fn main() {
             client.declare_queue_binding(get_binding_def2()).await.unwrap();
             client.declare_queue_binding(get_binding_def3()).await.unwrap();
             client.declare_queue_binding(get_binding_def4()).await.unwrap();
+
+            let p1 = client.new_publisher().await.unwrap();
+            let p2 = client.new_publisher().await.unwrap();
+            let p3 = client.new_publisher().await.unwrap();
+            let p4 = client.new_publisher().await.unwrap();
+            let p5 = client.new_publisher().await.unwrap();
+            let p6 = client.new_publisher().await.unwrap();
+            let p7 = client.new_publisher().await.unwrap();
+            let p8 = client.new_publisher().await.unwrap();
+            let p9 = client.new_publisher().await.unwrap();
+            let p10 = client.new_publisher().await.unwrap();
+            let p11 = client.new_publisher().await.unwrap();
+            let p12 = client.new_publisher().await.unwrap();
+            let p13 = client.new_publisher().await.unwrap();
+            let p14 = client.new_publisher().await.unwrap();
+            let p15 = client.new_publisher().await.unwrap();
+            let p16 = client.new_publisher().await.unwrap();
+            let p17 = client.new_publisher().await.unwrap();
+            let p18 = client.new_publisher().await.unwrap();
+            let p19 = client.new_publisher().await.unwrap();
+            let p20 = client.new_publisher().await.unwrap();
 
             info!("started 3");
             let _ = rx_panic.recv().await;

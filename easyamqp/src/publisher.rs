@@ -1,6 +1,35 @@
+use crate::{worker::Worker, rabbitclient::ClientCommand};
+use tokio::sync::Mutex;
+use std::sync::Arc;
+
+use tokio::sync::mpsc::{Receiver, Sender};
+use crate::callbacks::RabbitChannelCallback;
+
+pub struct Publisher {
+    pub params: PublisherParams,
+    pub worker: Arc<Mutex<Worker>>,
+}
+
+impl Publisher {
+    pub async fn new(id: u32, params: PublisherParams, tx_req: Sender<ClientCommand>) -> Result<Publisher, String> {
+        let callback = RabbitChannelCallback {
+            tx_req,
+            id,
+        };
+        let worker_cont = Worker {
+            id,
+            channel: None,
+            callback,
+        };
+        Ok(Publisher {
+            params,
+            worker: Arc::new(Mutex::new(worker_cont)),
+        })
+    } 
+}
 
 #[derive(Debug, Clone, Default)]
-pub struct Publisher {
+pub struct PublisherParams {
     pub exchange: Option<String>,
     pub content_type: Option<String>,
     pub content_encoding: Option<String>,
@@ -10,14 +39,14 @@ pub struct Publisher {
     pub mandatory: Option<bool>,
 }
 
-impl Publisher {
-    pub fn builder() -> PublisherBuilder {
-        PublisherBuilder::default()
+impl PublisherParams {
+    pub fn builder() -> PublisherParamsBuilder {
+        PublisherParamsBuilder::default()
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct PublisherBuilder {
+pub struct PublisherParamsBuilder {
     exchange: Option<String>,
     content_type: Option<String>,
     content_encoding: Option<String>,
@@ -27,42 +56,42 @@ pub struct PublisherBuilder {
     mandatory: Option<bool>,
 }
 
-impl PublisherBuilder {
-    pub fn new() -> PublisherBuilder {
-        PublisherBuilder::default()
+impl PublisherParamsBuilder {
+    pub fn new() -> PublisherParamsBuilder {
+        PublisherParamsBuilder::default()
     }
 
-    pub fn exchange(mut self,v: &str) -> PublisherBuilder {
+    pub fn exchange(mut self,v: &str) -> PublisherParamsBuilder {
         self.exchange = Some(v.to_string());
         self
     }
-    pub fn content_type(mut self,v: &str) -> PublisherBuilder {
+    pub fn content_type(mut self,v: &str) -> PublisherParamsBuilder {
         self.content_type = Some(v.to_string());
         self
     }
-    pub fn content_encoding(mut self,v: &str) -> PublisherBuilder {
+    pub fn content_encoding(mut self,v: &str) -> PublisherParamsBuilder {
         self.content_encoding = Some(v.to_string());
         self
     }
-    pub fn priority(mut self,v: MessagePriority) -> PublisherBuilder {
+    pub fn priority(mut self,v: MessagePriority) -> PublisherParamsBuilder {
         self.priority = Some(v);
         self
     }
-    pub fn message_type(mut self,v: &str) -> PublisherBuilder {
+    pub fn message_type(mut self,v: &str) -> PublisherParamsBuilder {
         self.message_type = Some(v.to_string());
         self
     }
-    pub fn routing_key(mut self,v: &str) -> PublisherBuilder {
+    pub fn routing_key(mut self,v: &str) -> PublisherParamsBuilder {
         self.routing_key = Some(v.to_string());
         self
     }
-    pub fn mandatory(mut self,v: bool) -> PublisherBuilder {
+    pub fn mandatory(mut self,v: bool) -> PublisherParamsBuilder {
         self.mandatory = Some(v);
         self
     }
 
-    pub fn build(self) -> Publisher {
-        Publisher {
+    pub fn build(self) -> PublisherParams {
+        PublisherParams {
             exchange: self.exchange,
             content_type: self.content_type,
             content_encoding: self.content_encoding,
@@ -202,11 +231,11 @@ impl Publisher {
 
 #[cfg(test)]
 mod tests {
-    use crate::publisher::{Publisher, PublishingParams, MessagePriority};
+    use crate::publisher::{PublisherParams, PublishingParams, MessagePriority};
 
     #[test]
     fn publisher_builder_test() {
-        let p0 = Publisher::builder().build();
+        let p0 = PublisherParams::builder().build();
         assert_eq!(None, p0.exchange);
         assert_eq!(None, p0.content_type);
         assert_eq!(None, p0.content_encoding);
@@ -216,7 +245,7 @@ mod tests {
         assert_eq!(None, p0.mandatory);
  
  
-        let p1 = Publisher::builder()
+        let p1 = PublisherParams::builder()
         .exchange("test_exchange")
         .content_type("test_content_type")
         .content_encoding("test_content_encoding")
@@ -234,7 +263,7 @@ mod tests {
         assert_eq!("test_routing_key", p1.routing_key.unwrap());
         assert_eq!(true, p1.mandatory.unwrap());
 
-        let p2 = Publisher::builder()
+        let p2 = PublisherParams::builder()
         .priority(MessagePriority::NormalLower)
         .mandatory(false)
         .build();
