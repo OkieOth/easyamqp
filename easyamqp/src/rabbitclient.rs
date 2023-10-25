@@ -95,9 +95,6 @@ impl RabbitConParamsBuilder {
 }
 
 pub struct RabbitClient {
-    /// Optional Application identifier, when set used a part of BasicProperties
-    app_id: Option<String>,
-
     con_params: RabbitConParams,
     tx_cmd: Sender<ClientCommand>,
     con_callback: RabbitConCallback,
@@ -125,7 +122,6 @@ impl RabbitClient {
         };
         let c = Arc::new(Mutex::new(cont_impl));
         let ret = RabbitClient {
-            app_id: None,
             con_params,
             tx_cmd,
             con_callback,
@@ -262,6 +258,7 @@ impl RabbitClient {
                                 .register_callback(worker.callback.clone())
                                 .await
                                 .unwrap();
+                            debug!("set channel for worker (id={})", worker.id);
                             worker.channel = Some(channel);
                         }
                         Err(e) => {

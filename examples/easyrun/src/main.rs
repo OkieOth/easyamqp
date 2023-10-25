@@ -2,8 +2,8 @@ use env_logger::Env;
 use easyamqp::{RabbitClient, RabbitConParams,
     ExchangeDefinition, ExchangeType, 
     QueueDefinition, QueueBindingDefinition,
-    Publisher};
-use log::info;
+    Publisher, PublishingParams};
+use log::{info, error};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -140,27 +140,66 @@ fn main() {
             client.declare_queue_binding(get_binding_def3()).await.unwrap();
             client.declare_queue_binding(get_binding_def4()).await.unwrap();
 
-            let p1 = client.new_publisher().await.unwrap();
-            let p2 = client.new_publisher().await.unwrap();
-            let p3 = client.new_publisher().await.unwrap();
-            let p4 = client.new_publisher().await.unwrap();
-            let p5 = client.new_publisher().await.unwrap();
-            let p6 = client.new_publisher().await.unwrap();
-            let p7 = client.new_publisher().await.unwrap();
-            let p8 = client.new_publisher().await.unwrap();
-            let p9 = client.new_publisher().await.unwrap();
+            let _p1 = client.new_publisher().await.unwrap();
+            let _p2 = client.new_publisher().await.unwrap();
+            let _p3 = client.new_publisher().await.unwrap();
+            let _p4 = client.new_publisher().await.unwrap();
+            let _p5 = client.new_publisher().await.unwrap();
+            let _p6 = client.new_publisher().await.unwrap();
+            let _p7 = client.new_publisher().await.unwrap();
+            let _p8 = client.new_publisher().await.unwrap();
+            let _p9 = client.new_publisher().await.unwrap();
             let p10 = client.new_publisher().await.unwrap();
-            let p11 = client.new_publisher().await.unwrap();
-            let p12 = client.new_publisher().await.unwrap();
-            let p13 = client.new_publisher().await.unwrap();
-            let p14 = client.new_publisher().await.unwrap();
-            let p15 = client.new_publisher().await.unwrap();
-            let p16 = client.new_publisher().await.unwrap();
-            let p17 = client.new_publisher().await.unwrap();
-            let p18 = client.new_publisher().await.unwrap();
-            let p19 = client.new_publisher().await.unwrap();
-            let p20 = client.new_publisher().await.unwrap();
+            let _p11 = client.new_publisher().await.unwrap();
+            let _p12 = client.new_publisher().await.unwrap();
+            let _p13 = client.new_publisher().await.unwrap();
+            let _p14 = client.new_publisher().await.unwrap();
+            let _p15 = client.new_publisher().await.unwrap();
+            let _p16 = client.new_publisher().await.unwrap();
+            let _p17 = client.new_publisher().await.unwrap();
+            let _p18 = client.new_publisher().await.unwrap();
+            let _p19 = client.new_publisher().await.unwrap();
+            let _p20 = client.new_publisher().await.unwrap();
 
+
+            info!("do publishing ...");
+            // exchange: "test_e_1".to_string(), 
+            // queue: "test_q_1".to_string(),
+            // routing_key: "test.*".to_string()}
+
+            let content = String::from(
+                r#"
+                    {
+                        "publisher": "example"
+                        "data": "Hello, amqprs!"
+                    }
+                "#,
+            )
+            .into_bytes();
+
+            let params = PublishingParams::builder()
+                .exchange("test_e_1")
+                .routing_key("test.p10")
+                .build();
+        
+            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                error!("error while publishing: {}", e.to_string());
+            }
+            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                error!("error while publishing: {}", e.to_string());
+            }
+            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                error!("error while publishing: {}", e.to_string());
+            }
+            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                error!("error while publishing: {}", e.to_string());
+            }
+            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                error!("error while publishing: {}", e.to_string());
+            }
+            if let Err(e) = p10.publish_with_params(content, &params).await {
+                error!("error while publishing: {}", e.to_string());
+            }
             info!("started 3");
             match rx_panic.recv().await {
                 Some(msg) => info!("Received panic request: {}", msg),
