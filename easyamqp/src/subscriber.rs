@@ -11,18 +11,14 @@ use amqprs::channel::{BasicAckArguments, BasicConsumeArguments, Channel};
 use amqprs::{Deliver, BasicProperties};
 
 
-#[async_trait::async_trait]
-pub trait SubscriptionConsumer {
-    async fn consume(&self, content: &Vec<u8>) -> bool;
-}
 
-pub struct Subscriber<'a> {
+pub struct Subscriber {
     pub worker: Arc<Mutex<Worker>>,
-    consumer: & 'a dyn SubscriptionConsumer,
+    consumer: Box<dyn Fn(&Vec<u8>) -> bool>,
 }
 
 #[async_trait::async_trait]
-impl <'a>AsyncConsumer for Subscriber<'a> {
+impl AsyncConsumer for Subscriber {
     async fn consume(
         &mut self, // use `&mut self` to make trait object to be `Sync`
         channel: &Channel,
@@ -30,19 +26,17 @@ impl <'a>AsyncConsumer for Subscriber<'a> {
         basic_properties: BasicProperties,
         content: Vec<u8>,
     ) {
-        if self.consumer.consume(&content).await {
-            let args = BasicAckArguments::new(deliver.delivery_tag(), false);
-            channel.basic_ack(args).await.unwrap();
-        }
+        (self.consumer)(&content);
+        // if (self.consumer)(&content) {
+        //     let args = BasicAckArguments::new(deliver.delivery_tag(), false);
+        //     channel.basic_ack(args).await.unwrap();
+        // }
     }
 
 }
 
-impl <'a>Subscriber<'a> {
-    pub async fn new<F>(id: u32, tx_req: Sender<ClientCommand>, consumer: &'a F, params: SubscribeParams) -> Result<Subscriber, String> 
-    where 
-        F: SubscriptionConsumer + Send,
-    {
+impl Subscriber {
+    pub async fn new(id: u32, tx_req: Sender<ClientCommand>, consumer: dyn Fn(Vec<u8>) -> bool, params: SubscribeParams) -> Result<Subscriber, String> {
         let callback = RabbitChannelCallback {
             tx_req,
             id,
@@ -54,7 +48,7 @@ impl <'a>Subscriber<'a> {
         };
         Ok(Subscriber {
             worker: Arc::new(Mutex::new(worker_cont)),
-            consumer,
+            consumer: Box::new(consumer),
         })
     }
 
