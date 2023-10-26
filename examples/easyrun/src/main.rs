@@ -6,6 +6,7 @@ use easyamqp::{RabbitClient, RabbitConParams,
 use log::{info, error};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::time::{sleep, Duration};
 
 
 fn get_exchange_def1() -> ExchangeDefinition {
@@ -167,39 +168,43 @@ fn main() {
             // queue: "test_q_1".to_string(),
             // routing_key: "test.*".to_string()}
 
-            let content = String::from(
-                r#"
-                    {
-                        "publisher": "example"
-                        "data": "Hello, amqprs!"
-                    }
-                "#,
-            )
-            .into_bytes();
-
             let params = PublishingParams::builder()
                 .exchange("test_e_1")
                 .routing_key("test.p10")
                 .build();
         
-            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
-                error!("error while publishing: {}", e.to_string());
-            }
-            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
-                error!("error while publishing: {}", e.to_string());
-            }
-            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
-                error!("error while publishing: {}", e.to_string());
-            }
-            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
-                error!("error while publishing: {}", e.to_string());
-            }
-            if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
-                error!("error while publishing: {}", e.to_string());
-            }
-            if let Err(e) = p10.publish_with_params(content, &params).await {
-                error!("error while publishing: {}", e.to_string());
-            }
+            tokio::spawn(async move {
+                let content = String::from(
+                    r#"
+                        {
+                            "publisher": "example"
+                            "data": "Hello, amqprs!"
+                        }
+                    "#,
+                )
+                .into_bytes();
+                loop {
+                    if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                        error!("error while publishing: {}", e.to_string());
+                    }
+                    if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                        error!("error while publishing: {}", e.to_string());
+                    }
+                    if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                        error!("error while publishing: {}", e.to_string());
+                    }
+                    if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                        error!("error while publishing: {}", e.to_string());
+                    }
+                    if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                        error!("error while publishing: {}", e.to_string());
+                    }
+                    if let Err(e) = p10.publish_with_params(content.clone(), &params).await {
+                        error!("error while publishing: {}", e.to_string());
+                    }
+                    sleep(Duration::from_secs(1)).await;
+                }
+            });
             info!("started 3");
             match rx_panic.recv().await {
                 Some(msg) => info!("Received panic request: {}", msg),

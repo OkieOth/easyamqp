@@ -4,8 +4,7 @@
 //! create workers on the connection that can be used for publishing and subscribing of data.
 use log::{debug, error, info, warn};
 use std::sync::Arc;
-use std::time;
-use std::thread;
+use tokio::time::{sleep, Duration};
 use std::result::Result;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
@@ -202,13 +201,19 @@ impl RabbitClient {
 
         match Publisher::new(client_cont.max_worker_id, params, self.tx_cmd.clone()).await {
             Ok(publisher) => {
-                client_cont.workers.push(publisher.worker.clone());
-                if let Err(e) = self.tx_cmd.send(ClientCommand::GetChannel(client_cont.max_worker_id)).await {
-                    error!("error while sending GetChannel command for worker (id={}): {}", client_cont.max_worker_id, e.to_string());
-                    Err(e.to_string())
-                } else {
-                    Ok(publisher)
+                {
+                    let mut worker_guard = publisher.worker.lock().await;
+                    let worker: &mut Worker = &mut *worker_guard;
+                    match Self::set_channel_to_worker(&client_cont.connection,worker).await {
+                        Ok(_) => {
+                            client_cont.workers.push(publisher.worker.clone());
+                        },
+                        Err(msg) => {
+                            return Err(msg);
+                        },
+                    }
                 }
+                return Ok(publisher);
             },
             Err(msg) => {
                 return Err(msg);
@@ -241,6 +246,37 @@ impl RabbitClient {
         }
     }
 
+
+    pub async fn set_channel_to_worker(connection: &Option<Connection>, worker: &mut Worker) -> Result<(), String> {
+        if connection.is_some() {
+            let connection = connection.as_ref().unwrap();
+            match connection.open_channel(None).await {
+                Ok(channel) => {
+                    channel
+                        .register_callback(worker.callback.clone())
+                        .await
+                        .unwrap();
+                    debug!("set channel for worker (id={})", worker.id);
+                    worker.channel = Some(channel);
+                    Ok(())
+                }
+                Err(e) => {
+                    let msg = format!(
+                        "error while creating channel for worker (id={}): {}",
+                        worker.id,
+                        e.to_string());
+                    error!("{}", msg);
+                    Err(msg)
+                }
+            }
+
+        } else {
+            let msg = format!("no connection, unable to provide channel for worker (id={})", worker.id);
+            warn!("{}", msg);
+            Err(msg)
+        }
+    }
+
     async fn provide_channel(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
         let mut guard = cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
@@ -250,29 +286,30 @@ impl RabbitClient {
             let worker: &mut Worker = &mut *worker_guard;
             if worker.id == id {
                 found = true;
-                if client_cont.connection.is_some() {
-                    let connection = client_cont.connection.as_ref().unwrap();
-                    match connection.open_channel(None).await {
-                        Ok(channel) => {
-                            channel
-                                .register_callback(worker.callback.clone())
-                                .await
-                                .unwrap();
-                            debug!("set channel for worker (id={})", worker.id);
-                            worker.channel = Some(channel);
-                        }
-                        Err(e) => {
-                            error!(
-                                "error while creating channel for worker (id={}): {}",
-                                id,
-                                e.to_string()
-                            );
-                        }
-                    }
+                let _ = RabbitClient::set_channel_to_worker(&client_cont.connection, worker).await;
+                // if client_cont.connection.is_some() {
+                //     let connection = client_cont.connection.as_ref().unwrap();
+                //     match connection.open_channel(None).await {
+                //         Ok(channel) => {
+                //             channel
+                //                 .register_callback(worker.callback.clone())
+                //                 .await
+                //                 .unwrap();
+                //             debug!("set channel for worker (id={})", worker.id);
+                //             worker.channel = Some(channel);
+                //         }
+                //         Err(e) => {
+                //             error!(
+                //                 "error while creating channel for worker (id={}): {}",
+                //                 id,
+                //                 e.to_string()
+                //             );
+                //         }
+                //     }
 
-                } else {
-                    warn!("no connection, unable to provide channel for worker (id={})", id);
-                }
+                // } else {
+                //     warn!("no connection, unable to provide channel for worker (id={})", id);
+                // }
             }
         }
         if ! found {
@@ -299,9 +336,9 @@ impl RabbitClient {
                     RabbitClient::send_panic(msg, cont).await;
                     break;
                 } else {
-                    let sleep_time = time::Duration::from_secs(reconnect_seconds);
+                    let sleep_time = Duration::from_secs(reconnect_seconds);
                     debug!("sleep for {} seconds before try to reestablish topology ...",reconnect_seconds);
-                    thread::sleep(sleep_time);
+                    sleep(sleep_time).await;
                     reconnect_seconds = reconnect_seconds * 2;
                     reconnect_attempts += 1;
                 }
@@ -383,9 +420,9 @@ impl RabbitClient {
                             reconnect_attempts));
                     } else {
                         warn!("error to connect: {}", s);
-                        let sleep_time = time::Duration::from_secs(reconnect_seconds);
+                        let sleep_time = Duration::from_secs(reconnect_seconds);
                         debug!("sleep for {} seconds before try to reconnect ...",reconnect_seconds);
-                        thread::sleep(sleep_time);
+                        sleep(sleep_time).await;
                         reconnect_seconds = reconnect_seconds * 2;
                         reconnect_attempts += 1;
                     }

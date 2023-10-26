@@ -3,6 +3,7 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 use amqprs::{channel::{Channel, BasicPublishArguments}, BasicProperties};
 use log::{debug, error, info, warn};
+use tokio::time::{sleep, Duration};
 
 use tokio::sync::mpsc::{Receiver, Sender};
 use crate::callbacks::RabbitChannelCallback;
@@ -146,13 +147,31 @@ impl Publisher {
     }
 
     pub async fn publish_with_params(&self, content: Vec<u8>, params: &PublishingParams) -> Result<(), PublishError> {
-        let mut worker_guard = self.worker.lock().await;
-        let worker: &mut Worker = &mut *worker_guard;
-        match &worker.channel {
-            Some(c) => {
-                return self.publish_with_params_impl(content, &params, &c).await;
-            },
-            None => return Err(PublishError::ChannelNotOpen(worker.id)),
+        let mut reconnect_millis = 500;
+        let mut reconnect_attempts: u8 = 0;
+        let max_reconnect_attempts = 5;
+        loop {
+            let mut worker_guard = self.worker.lock().await;
+            let worker: &mut Worker = &mut *worker_guard;
+            match &worker.channel {
+                Some(c) => {
+                    return self.publish_with_params_impl(content, &params, &c).await;
+                },
+                None => {
+                    if reconnect_attempts > max_reconnect_attempts {
+                        let msg = format!("reached maximum attempts ({}), but channel not open to publish",
+                        reconnect_attempts);
+                        error!("{}", msg);
+                        return Err(PublishError::ChannelNotOpen(worker.id));
+                    } else {
+                        let sleep_time = Duration::from_millis(reconnect_millis);
+                        debug!("sleep for {} seconds before try to reestablish topology ...",reconnect_millis);
+                        sleep( sleep_time ).await;
+                        reconnect_millis = reconnect_millis * 2;
+                        reconnect_attempts += 1;
+                    }
+                },
+            }
         }
     }
 }
