@@ -4,6 +4,8 @@ use easyamqp::{RabbitClient, RabbitConParams,
 use easyamqp::utils::get_env_var_str;
 use serde_json::Value;
 use serde_json_path::JsonPath;
+use easyamqp::{Publisher};
+use tokio::time::{sleep, Duration};
 
 fn extract_json_names(json_str: &str) -> Vec<String> {
     //println!("{}", conn_json_str);
@@ -302,5 +304,48 @@ fn create_bindings_test() {
         assert!(check_binding(&rabbit_server, &user_name, &password, json_path2_2));
         let json_path3_2 = "$[?(@.source == 'third' && @.destination == 'third_queue' && @.routing_key == 'third.*')]";
         assert!(check_binding(&rabbit_server, &user_name, &password, json_path3_2));
+    });
+}
+
+
+/// This function test the deregistration of publisher workers in case
+/// that publisher run out of scope or are droped
+#[test]
+#[ignore]
+fn test_deregister_of_deleted_publishers() {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+        let user_name = get_env_var_str("RABBIT_USER", "guest");
+        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
+
+        let mut client = RabbitClient::new(params).await;
+        client.connect().await.unwrap();
+
+        let _p1: Publisher = client.new_publisher().await.unwrap();
+        assert_eq!(1, client.get_worker_count().await);
+        let _p2: Publisher = client.new_publisher().await.unwrap();
+        assert_eq!(2, client.get_worker_count().await);
+        let _p3: Publisher = client.new_publisher().await.unwrap();
+        assert_eq!(3, client.get_worker_count().await);
+        let sleep_time = Duration::from_millis(500);
+        drop(_p2);
+        sleep( sleep_time ).await;
+        assert_eq!(2, client.get_worker_count().await);
+        drop(_p1);
+        sleep( sleep_time ).await;
+        assert_eq!(1, client.get_worker_count().await);
+        drop(_p3);
+        sleep( sleep_time ).await;
+        assert_eq!(0, client.get_worker_count().await);
     });
 }

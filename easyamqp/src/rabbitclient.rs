@@ -277,6 +277,24 @@ impl RabbitClient {
         }
     }
 
+    async fn remove_worker(cont: &Arc<Mutex<ClientImplCont>>, id_to_remove: u32) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+
+        let mut new_workers = vec![];
+
+        for worker in &client_cont.workers {
+            let worker_guard = worker.lock().await;
+            let w: &Worker = &*worker_guard;
+            if w.id != id_to_remove {
+                new_workers.push(worker.clone());
+            }
+        }
+    
+        client_cont.workers = new_workers;
+    }
+
+
     async fn provide_channel(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
         let mut guard = cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
@@ -390,7 +408,10 @@ impl RabbitClient {
                     ClientCommand::GetChannel(id) => {
                         debug!("received a get channel request for id={}", id);
                         RabbitClient::provide_channel(&cont, id).await
-                    }
+                    },
+                    ClientCommand::RemoveWorker(id) => {
+                        RabbitClient::remove_worker(&cont, id).await;
+                    },
                 }
             }
             error!("I am leaving the management task 8-o");
@@ -459,6 +480,12 @@ impl RabbitClient {
         }
     }
 
+    pub async fn get_worker_count(&self) -> usize {
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.workers.len()
+    }
+
 }
 
 pub struct ClientImplCont {
@@ -473,6 +500,7 @@ pub struct ClientImplCont {
 pub enum ClientCommand {
     Connect,
     GetChannel(u32),
+    RemoveWorker(u32),
 }
 
 impl std::fmt::Display for ClientCommand {
@@ -480,6 +508,7 @@ impl std::fmt::Display for ClientCommand {
         match self {
             ClientCommand::Connect => write!(f, "Connect"),
             ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
+            ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={})", id),
         }
     }
 }

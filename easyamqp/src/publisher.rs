@@ -4,6 +4,7 @@ use std::sync::Arc;
 use amqprs::{channel::{Channel, BasicPublishArguments}, BasicProperties};
 use log::{debug, error, info, warn};
 use tokio::time::{sleep, Duration};
+use tokio::task;
 
 use tokio::sync::mpsc::{Receiver, Sender};
 use crate::callbacks::RabbitChannelCallback;
@@ -11,6 +12,21 @@ use crate::callbacks::RabbitChannelCallback;
 pub struct Publisher {
     pub params: PublisherParams,
     pub worker: Arc<Mutex<Worker>>,
+}
+
+impl Drop for Publisher {
+    fn drop(&mut self) {
+        let w = self.worker.clone();
+        task::spawn(async move {
+            let mut worker_guard = w.lock().await;
+            let worker: &mut Worker = &mut *worker_guard;
+            debug!("worker (id={}) will be deleted", worker.id);
+            if let Err(e) = worker.callback.tx_req.send(ClientCommand::RemoveWorker(worker.id)).await {
+                error!("error while sending request to delete worker (id={}): {}",
+                worker.id, e.to_string());
+            }
+        });
+    }
 }
 
 impl Publisher {
@@ -486,4 +502,6 @@ mod tests {
     fn publishingparams_builder_test() {
         // TODO
     }
+
+
 }
