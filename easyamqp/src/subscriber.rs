@@ -3,6 +3,7 @@ use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
 use std::sync::Arc;
 
+use tokio::task;
 use tokio::sync::mpsc::{Receiver, Sender};
 use crate::callbacks::RabbitChannelCallback;
 use log::{debug, error, info, warn};
@@ -15,6 +16,22 @@ use amqprs::{Deliver, BasicProperties};
 pub struct Subscriber {
     pub worker: Arc<Mutex<Worker>>,
 }
+
+impl Drop for Subscriber {
+    fn drop(&mut self) {
+        let w = self.worker.clone();
+        task::spawn(async move {
+            let mut worker_guard = w.lock().await;
+            let worker: &mut Worker = &mut *worker_guard;
+            debug!("worker (id={}) will be deleted", worker.id);
+            if let Err(e) = worker.callback.tx_req.send(ClientCommand::RemoveWorker(worker.id)).await {
+                error!("error while sending request to delete worker (id={}): {}",
+                worker.id, e.to_string());
+            }
+        });
+    }
+}
+
 
 pub struct SubscriptionContent {
 
