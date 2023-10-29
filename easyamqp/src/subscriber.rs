@@ -1,10 +1,10 @@
 use crate::{worker::Worker, rabbitclient::ClientCommand};
 use tokio::sync::Mutex;
-use tokio::time::{Duration, sleep};
+use tokio::time::{Duration, sleep, timeout};
 use std::sync::Arc;
 
 use tokio::task;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use crate::callbacks::RabbitChannelCallback;
 use log::{debug, error, info, warn};
 use amqprs::consumer::AsyncConsumer;
@@ -15,6 +15,8 @@ use amqprs::{Deliver, BasicProperties};
 
 pub struct Subscriber {
     pub worker: Arc<Mutex<Worker>>,
+    sub_impl: Arc<Mutex<SubscriberImpl>>,
+    params: SubscribeParams,
 }
 
 impl Drop for Subscriber {
@@ -34,16 +36,37 @@ impl Drop for Subscriber {
 
 
 pub struct SubscriptionContent {
+    pub content_type: Option<String>,
+    pub content_encoding: Option<String>,
+    pub correlation_id: Option<String>,
+    pub message_id: Option<String>,
+    pub timestamp: Option<u64>,
+    pub message_type: Option<String>,
+    pub user_id: Option<String>,
+    pub app_id: Option<String>,
+    pub data: Vec<u8>,
+    pub delivery_tag: u64,
+}
 
+impl SubscriptionContent {
+    fn new(
+        deliver: Deliver,
+        basic_properties: BasicProperties,
+        content: Vec<u8>
+    ) -> SubscriptionContent {
+        SubscriptionContent{}
+    }
 }
 
 pub struct SubscriptionResponse {
-
+    pub delivery_tag: u64,
+    pub acc: bool,
 }
 
+#[derive(Debug, Default)]
 struct SubscriberImpl {
-    pub tx_content: Sender<SubscriptionContent>,
-    pub rx_response: Receiver<SubscriptionResponse>,
+    pub tx_content: Option<Sender<SubscriptionContent>>,
+    pub rx_response: Option<Receiver<SubscriptionResponse>>,
 }
 
 
@@ -57,10 +80,38 @@ impl AsyncConsumer for SubscriberImpl {
         basic_properties: BasicProperties,
         content: Vec<u8>,
     ) {
-        debug!("TODO");
+        debug!("consume is called");
+        let sc = SubscriptionContent::new(
+            deliver,
+            basic_properties,
+            content
+            );
+        if let Err(e) = self.tx_content.unwrap().send(sc).await {
+            error!("error while sending subscription content: {}", e);
+            // left the message unacknoledged
+            return;
+        }
+        const timeout_secs: u64 = 30;
+        match timeout(Duration::from_secs(timeout_secs), self.rx_response.unwrap().recv()).await {
+            Ok(timeout_result) => {
+                match timeout_result {
+                    Some(resp) => {
+
+                    },
+                    None => {
+                        error!("didn't receive proper subscription response");
+                        // left the message unacknoledged
+                    },
+                }
+            },
+            Err(_) => {
+                // timeout
+                error!("didn't receive subscription response in timeout ({} s)", timeout_secs);
+            },
+        }
         // (self.consumer)(&content);
         // if (self.consumer)(&content) {
-        //     let args = BasicAckArguments::new(deliver.delivery_tag(), false);
+        //let args = BasicAckArguments::new(deliver.delivery_tag(), false);
         //     channel.basic_ack(args).await.unwrap();
         // }
     }
@@ -80,10 +131,12 @@ impl Subscriber {
         };
         Ok(Subscriber {
             worker: Arc::new(Mutex::new(worker_cont)),
+            params,
+            sub_impl: Arc::new(Mutex::new(SubscriberImpl::default())),
         })
     }
 
-    pub async fn subscibe(&self) -> Result<(), SubscribeError> {
+    pub async fn subscibe(&self) -> Result<((Receiver<SubscriptionContent>, Sender<SubscriptionResponse>)), SubscribeError> {
         let mut reconnect_millis = 500;
         let mut reconnect_attempts: u8 = 0;
         let max_reconnect_attempts = 5;
@@ -92,9 +145,13 @@ impl Subscriber {
             let worker: &mut Worker = &mut *worker_guard;
             match &worker.channel {
                 Some(c) => {
-                    // TODO consume
-                    //return self.publish_with_params_impl(content, &params, &c).await;
-                    return Ok(());
+                    let mut sub_impl_guard = self.sub_impl.lock().await;
+                    let sub_impl: &mut SubscriberImpl = &mut *sub_impl_guard;
+                    let (tx_content, rx_content): (Sender<SubscriptionContent>, Receiver<SubscriptionContent>) = channel(1);
+                    let (tx_response, rx_response): (Sender<SubscriptionResponse>, Receiver<SubscriptionResponse>) = channel(1);
+                    sub_impl.tx_content = Some(tx_content);
+                    sub_impl.rx_response = Some(rx_response);
+                    return Ok((rx_content, tx_response));
                 },
                 None => {
                     if reconnect_attempts > max_reconnect_attempts {
@@ -117,7 +174,7 @@ impl Subscriber {
 
 #[derive(Debug, Clone, Default)]
 pub struct SubscribeParams {
-
+    pub auto_acc: bool,
 }
 
 pub enum SubscribeError {
