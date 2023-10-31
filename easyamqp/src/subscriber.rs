@@ -35,6 +35,7 @@ impl Drop for Subscriber {
 }
 
 
+#[derive(Debug, Clone, Default)]
 pub struct SubscriptionContent {
     pub content_type: Option<String>,
     pub content_encoding: Option<String>,
@@ -54,7 +55,39 @@ impl SubscriptionContent {
         basic_properties: BasicProperties,
         content: Vec<u8>
     ) -> SubscriptionContent {
-        SubscriptionContent{}
+        let mut ret = SubscriptionContent{
+            data: content,
+            delivery_tag: deliver.delivery_tag(),
+            ..Default::default()
+        };
+
+        if basic_properties.content_type().is_some() {
+            ret.content_type = Some(basic_properties.content_type().unwrap().to_string());
+        }
+        if basic_properties.content_encoding().is_some() {
+            ret.content_encoding = Some(basic_properties.content_encoding().unwrap().to_string());
+        }
+        if basic_properties.correlation_id().is_some() {
+            ret.correlation_id = Some(basic_properties.correlation_id().unwrap().to_string());
+        }
+        if basic_properties.message_id().is_some() {
+            ret.message_id = Some(basic_properties.message_id().unwrap().to_string());
+        }
+        if basic_properties.timestamp().is_some() {
+            ret.timestamp = Some(basic_properties.timestamp().unwrap());
+        }
+        if basic_properties.message_type().is_some() {
+            ret.message_type = Some(basic_properties.message_type().unwrap().to_string());
+        }
+        if basic_properties.user_id().is_some() {
+            ret.user_id = Some(basic_properties.user_id().unwrap().to_string());
+        }
+        if basic_properties.app_id().is_some() {
+            ret.app_id = Some(basic_properties.app_id().unwrap().to_string());
+        }
+
+        ret
+
     }
 }
 
@@ -86,13 +119,13 @@ impl AsyncConsumer for SubscriberImpl {
             basic_properties,
             content
             );
-        if let Err(e) = self.tx_content.unwrap().send(sc).await {
+        if let Err(e) = self.tx_content.as_ref().unwrap().send(sc).await {
             error!("error while sending subscription content: {}", e);
             // left the message unacknoledged
             return;
         }
-        const timeout_secs: u64 = 30;
-        match timeout(Duration::from_secs(timeout_secs), self.rx_response.unwrap().recv()).await {
+        const TIMEOUT_SECS: u64 = 30;
+        match timeout(Duration::from_secs(TIMEOUT_SECS), self.rx_response.as_mut().unwrap().recv()).await {
             Ok(timeout_result) => {
                 match timeout_result {
                     Some(resp) => {
@@ -106,7 +139,7 @@ impl AsyncConsumer for SubscriberImpl {
             },
             Err(_) => {
                 // timeout
-                error!("didn't receive subscription response in timeout ({} s)", timeout_secs);
+                error!("didn't receive subscription response in timeout ({} s)", TIMEOUT_SECS);
             },
         }
         // (self.consumer)(&content);
@@ -136,7 +169,7 @@ impl Subscriber {
         })
     }
 
-    pub async fn subscibe(&self) -> Result<((Receiver<SubscriptionContent>, Sender<SubscriptionResponse>)), SubscribeError> {
+    pub async fn subscibe(&self) -> Result<(Receiver<SubscriptionContent>, Sender<SubscriptionResponse>), SubscribeError> {
         let mut reconnect_millis = 500;
         let mut reconnect_attempts: u8 = 0;
         let max_reconnect_attempts = 5;
