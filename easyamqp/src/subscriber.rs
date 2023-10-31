@@ -93,13 +93,14 @@ impl SubscriptionContent {
 
 pub struct SubscriptionResponse {
     pub delivery_tag: u64,
-    pub acc: bool,
+    pub ack: bool,
 }
 
 #[derive(Debug, Default)]
 struct SubscriberImpl {
     pub tx_content: Option<Sender<SubscriptionContent>>,
     pub rx_response: Option<Receiver<SubscriptionResponse>>,
+    pub auto_ack: bool,
 }
 
 
@@ -119,6 +120,7 @@ impl AsyncConsumer for SubscriberImpl {
             basic_properties,
             content
             );
+        let delivery_tag = sc.delivery_tag;
         if let Err(e) = self.tx_content.as_ref().unwrap().send(sc).await {
             error!("error while sending subscription content: {}", e);
             // left the message unacknoledged
@@ -129,7 +131,10 @@ impl AsyncConsumer for SubscriberImpl {
             Ok(timeout_result) => {
                 match timeout_result {
                     Some(resp) => {
-
+                        if resp.ack {
+                            let args = BasicAckArguments::new(delivery_tag, false);
+                            channel.basic_ack(args).await.unwrap();
+                        }
                     },
                     None => {
                         error!("didn't receive proper subscription response");
@@ -142,11 +147,10 @@ impl AsyncConsumer for SubscriberImpl {
                 error!("didn't receive subscription response in timeout ({} s)", TIMEOUT_SECS);
             },
         }
-        // (self.consumer)(&content);
-        // if (self.consumer)(&content) {
-        //let args = BasicAckArguments::new(deliver.delivery_tag(), false);
-        //     channel.basic_ack(args).await.unwrap();
-        // }
+        if self.auto_ack {
+            let args = BasicAckArguments::new(delivery_tag, false);
+            channel.basic_ack(args).await.unwrap();
+        }
     }
 
 }
