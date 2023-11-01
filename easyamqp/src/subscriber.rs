@@ -17,6 +17,10 @@ pub struct Subscriber {
     pub worker: Arc<Mutex<Worker>>,
     //sub_impl: Arc<Mutex<SubscriberImpl>>,
     params: SubscribeParams,
+    pub tx_content: Arc<Mutex<Sender<SubscriptionContent>>>,
+    pub rx_content: Receiver<SubscriptionContent>,
+    pub tx_response: Sender<SubscriptionResponse>,
+    pub rx_response: Arc<Mutex<Receiver<SubscriptionResponse>>>,
 }
 
 impl Drop for Subscriber {
@@ -97,8 +101,8 @@ pub struct SubscriptionResponse {
 }
 
 struct SubscriberImpl {
-    pub tx_content: Sender<SubscriptionContent>,
-    pub rx_response: Receiver<SubscriptionResponse>,
+    pub tx_content: Arc<Mutex<Sender<SubscriptionContent>>>,
+    pub rx_response: Arc<Mutex<Receiver<SubscriptionResponse>>>,
     pub auto_ack: bool,
     pub queue_name: String,
     pub consumer_tag: String,
@@ -122,31 +126,40 @@ impl AsyncConsumer for SubscriberImpl {
             content
             );
         let delivery_tag = sc.delivery_tag;
-        if let Err(e) = self.tx_content.send(sc).await {
-            error!("error while sending subscription content: {}", e);
-            // left the message unacknoledged
-            return;
+        {
+            let mut tx_content_guard = self.tx_content.lock().await;
+            let tx_content: &mut Sender<SubscriptionContent> = &mut *tx_content_guard;
+
+            if let Err(e) = tx_content.send(sc).await {
+                error!("error while sending subscription content: {}", e);
+                // left the message unacknoledged
+                return;
+            }
         }
         const TIMEOUT_SECS: u64 = 30;
-        match timeout(Duration::from_secs(TIMEOUT_SECS), self.rx_response.recv()).await {
-            Ok(timeout_result) => {
-                match timeout_result {
-                    Some(resp) => {
-                        if resp.ack {
-                            let args = BasicAckArguments::new(delivery_tag, false);
-                            channel.basic_ack(args).await.unwrap();
-                        }
-                    },
-                    None => {
-                        error!("didn't receive proper subscription response");
-                        // left the message unacknoledged
-                    },
-                }
-            },
-            Err(_) => {
-                // timeout
-                error!("didn't receive subscription response in timeout ({} s)", TIMEOUT_SECS);
-            },
+        {
+            let mut rx_response_guard = self.rx_response.lock().await;
+            let rx_response: &mut Receiver<SubscriptionResponse> = &mut *rx_response_guard;
+            match timeout(Duration::from_secs(TIMEOUT_SECS), rx_response.recv()).await {
+                Ok(timeout_result) => {
+                    match timeout_result {
+                        Some(resp) => {
+                            if resp.ack {
+                                let args = BasicAckArguments::new(delivery_tag, false);
+                                channel.basic_ack(args).await.unwrap();
+                            }
+                        },
+                        None => {
+                            error!("didn't receive proper subscription response");
+                            // left the message unacknoledged
+                        },
+                    }
+                },
+                Err(_) => {
+                    // timeout
+                    error!("didn't receive subscription response in timeout ({} s)", TIMEOUT_SECS);
+                },
+            }
         }
         if self.auto_ack {
             let args = BasicAckArguments::new(delivery_tag, false);
@@ -167,15 +180,21 @@ impl Subscriber {
             channel: None,
             callback,
         };
+        let (tx_content, rx_content): (Sender<SubscriptionContent>, Receiver<SubscriptionContent>) = channel(1);
+        let (tx_response, rx_response): (Sender<SubscriptionResponse>, Receiver<SubscriptionResponse>) = channel(1);
+
         let ret = Subscriber {
             worker: Arc::new(Mutex::new(worker_cont)),
             params: params.clone(),
-            //sub_impl: Arc::new(Mutex::new(subscriber_impl)),
+            tx_content: Arc::new(Mutex::new(tx_content)),
+            rx_content: rx_content,
+            tx_response: tx_response,
+            rx_response: Arc::new(Mutex::new(rx_response)),
         };
         Ok(ret)
     }
 
-    pub async fn subscibe(&self) -> Result<(Receiver<SubscriptionContent>, Sender<SubscriptionResponse>), SubscribeError> {
+    pub async fn subscibe(&self) -> Result<(&Receiver<SubscriptionContent>, &Sender<SubscriptionResponse>), SubscribeError> {
         let mut reconnect_millis = 500;
         let mut reconnect_attempts: u8 = 0;
         let max_reconnect_attempts = 5;
@@ -184,12 +203,10 @@ impl Subscriber {
             let worker: &mut Worker = &mut *worker_guard;
             match &worker.channel {
                 Some(c) => {
-                    let (tx_content, rx_content): (Sender<SubscriptionContent>, Receiver<SubscriptionContent>) = channel(1);
-                    let (tx_response, rx_response): (Sender<SubscriptionResponse>, Receiver<SubscriptionResponse>) = channel(1);
 
                     let sub_impl = SubscriberImpl {
-                        tx_content,
-                        rx_response,
+                        tx_content: self.tx_content.clone(),
+                        rx_response: self.rx_response.clone(),
                         auto_ack: self.params.auto_ack,
                         queue_name: self.params.queue_name.clone(),
                         consumer_tag: self.params.consumer_tag.clone(),
@@ -202,7 +219,7 @@ impl Subscriber {
 
                     match c.basic_consume(sub_impl, args).await {
                         Ok(_) => {
-                            return Ok((rx_content, tx_response));
+                            return Ok((&self.rx_content, &self.tx_response));
                         },
                         Err(err) => {
                             return Err(SubscribeError::SubscribeError(err.to_string()));
