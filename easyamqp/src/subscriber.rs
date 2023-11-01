@@ -15,7 +15,7 @@ use amqprs::{Deliver, BasicProperties};
 
 pub struct Subscriber {
     pub worker: Arc<Mutex<Worker>>,
-    sub_impl: Arc<Mutex<SubscriberImpl>>,
+    //sub_impl: Arc<Mutex<SubscriberImpl>>,
     params: SubscribeParams,
 }
 
@@ -96,13 +96,14 @@ pub struct SubscriptionResponse {
     pub ack: bool,
 }
 
-#[derive(Debug, Default)]
 struct SubscriberImpl {
-    pub tx_content: Option<Sender<SubscriptionContent>>,
-    pub rx_response: Option<Receiver<SubscriptionResponse>>,
+    pub tx_content: Sender<SubscriptionContent>,
+    pub rx_response: Receiver<SubscriptionResponse>,
     pub auto_ack: bool,
+    pub queue_name: String,
+    pub consumer_tag: String,
+    pub exclusive: bool,
 }
-
 
 
 #[async_trait::async_trait]
@@ -121,13 +122,13 @@ impl AsyncConsumer for SubscriberImpl {
             content
             );
         let delivery_tag = sc.delivery_tag;
-        if let Err(e) = self.tx_content.as_ref().unwrap().send(sc).await {
+        if let Err(e) = self.tx_content.send(sc).await {
             error!("error while sending subscription content: {}", e);
             // left the message unacknoledged
             return;
         }
         const TIMEOUT_SECS: u64 = 30;
-        match timeout(Duration::from_secs(TIMEOUT_SECS), self.rx_response.as_mut().unwrap().recv()).await {
+        match timeout(Duration::from_secs(TIMEOUT_SECS), self.rx_response.recv()).await {
             Ok(timeout_result) => {
                 match timeout_result {
                     Some(resp) => {
@@ -166,11 +167,12 @@ impl Subscriber {
             channel: None,
             callback,
         };
-        Ok(Subscriber {
+        let ret = Subscriber {
             worker: Arc::new(Mutex::new(worker_cont)),
-            params,
-            sub_impl: Arc::new(Mutex::new(SubscriberImpl::default())),
-        })
+            params: params.clone(),
+            //sub_impl: Arc::new(Mutex::new(subscriber_impl)),
+        };
+        Ok(ret)
     }
 
     pub async fn subscibe(&self) -> Result<(Receiver<SubscriptionContent>, Sender<SubscriptionResponse>), SubscribeError> {
@@ -182,13 +184,30 @@ impl Subscriber {
             let worker: &mut Worker = &mut *worker_guard;
             match &worker.channel {
                 Some(c) => {
-                    let mut sub_impl_guard = self.sub_impl.lock().await;
-                    let sub_impl: &mut SubscriberImpl = &mut *sub_impl_guard;
                     let (tx_content, rx_content): (Sender<SubscriptionContent>, Receiver<SubscriptionContent>) = channel(1);
                     let (tx_response, rx_response): (Sender<SubscriptionResponse>, Receiver<SubscriptionResponse>) = channel(1);
-                    sub_impl.tx_content = Some(tx_content);
-                    sub_impl.rx_response = Some(rx_response);
-                    return Ok((rx_content, tx_response));
+
+                    let sub_impl = SubscriberImpl {
+                        tx_content,
+                        rx_response,
+                        auto_ack: self.params.auto_ack,
+                        queue_name: self.params.queue_name.clone(),
+                        consumer_tag: self.params.consumer_tag.clone(),
+                        exclusive: self.params.exclusive,
+                    
+                    };
+                    let mut args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag);
+                    args.auto_ack(sub_impl.auto_ack);
+                    args.exclusive(sub_impl.exclusive);
+
+                    match c.basic_consume(sub_impl, args).await {
+                        Ok(_) => {
+                            return Ok((rx_content, tx_response));
+                        },
+                        Err(err) => {
+                            return Err(SubscribeError::SubscribeError(err.to_string()));
+                        },
+                    }
                 },
                 None => {
                     if reconnect_attempts > max_reconnect_attempts {
@@ -211,7 +230,10 @@ impl Subscriber {
 
 #[derive(Debug, Clone, Default)]
 pub struct SubscribeParams {
-    pub auto_acc: bool,
+    pub auto_ack: bool,
+    pub queue_name: String,
+    pub exclusive: bool,
+    pub consumer_tag: String,
 }
 
 pub enum SubscribeError {
