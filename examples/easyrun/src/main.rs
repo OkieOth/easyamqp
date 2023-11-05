@@ -141,26 +141,26 @@ fn main() {
             client.declare_queue_binding(get_binding_def3()).await.unwrap();
             client.declare_queue_binding(get_binding_def4()).await.unwrap();
 
-            let _p1 = client.new_publisher().await.unwrap();
-            let _p2 = client.new_publisher().await.unwrap();
-            let _p3 = client.new_publisher().await.unwrap();
-            let _p4 = client.new_publisher().await.unwrap();
-            let _p5 = client.new_publisher().await.unwrap();
-            let _p6 = client.new_publisher().await.unwrap();
-            let _p7 = client.new_publisher().await.unwrap();
-            let _p8 = client.new_publisher().await.unwrap();
-            let _p9 = client.new_publisher().await.unwrap();
-            let p10 = client.new_publisher().await.unwrap();
-            let _p11 = client.new_publisher().await.unwrap();
-            let _p12 = client.new_publisher().await.unwrap();
-            let _p13 = client.new_publisher().await.unwrap();
-            let _p14 = client.new_publisher().await.unwrap();
-            let _p15 = client.new_publisher().await.unwrap();
-            let _p16 = client.new_publisher().await.unwrap();
-            let _p17 = client.new_publisher().await.unwrap();
-            let _p18 = client.new_publisher().await.unwrap();
-            let _p19 = client.new_publisher().await.unwrap();
-            let _p20 = client.new_publisher().await.unwrap();
+            let _p1: Publisher = client.new_publisher().await.unwrap();
+            let _p2: Publisher = client.new_publisher().await.unwrap();
+            let _p3: Publisher = client.new_publisher().await.unwrap();
+            let _p4: Publisher = client.new_publisher().await.unwrap();
+            let _p5: Publisher = client.new_publisher().await.unwrap();
+            let _p6: Publisher = client.new_publisher().await.unwrap();
+            let _p7: Publisher = client.new_publisher().await.unwrap();
+            let _p8: Publisher = client.new_publisher().await.unwrap();
+            let _p9: Publisher = client.new_publisher().await.unwrap();
+            let p10: Publisher = client.new_publisher().await.unwrap();
+            let _p11: Publisher = client.new_publisher().await.unwrap();
+            let _p12: Publisher = client.new_publisher().await.unwrap();
+            let _p13: Publisher = client.new_publisher().await.unwrap();
+            let _p14: Publisher = client.new_publisher().await.unwrap();
+            let _p15: Publisher = client.new_publisher().await.unwrap();
+            let _p16: Publisher = client.new_publisher().await.unwrap();
+            let _p17: Publisher = client.new_publisher().await.unwrap();
+            let _p18: Publisher = client.new_publisher().await.unwrap();
+            let _p19: Publisher = client.new_publisher().await.unwrap();
+            let _p20: Publisher = client.new_publisher().await.unwrap();
 
 
             info!("do publishing ...");
@@ -174,6 +174,10 @@ fn main() {
                 .build();
         
             tokio::spawn(async move {
+                drop(_p1);
+                drop(_p2);
+                drop(_p3);
+                drop(_p4);
                 let content = String::from(
                     r#"
                         {

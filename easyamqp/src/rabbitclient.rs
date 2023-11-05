@@ -15,7 +15,8 @@ use amqprs::connection::{Connection, OpenConnectionArguments};
 
 use crate::publisher::Publisher;
 use crate::publisher::PublisherParams;
-use crate::subscriber::Subscriber;
+use crate::subscriber;
+use crate::subscriber::{Subscriber, SubscribeParams};
 use crate::topology::Topology;
 use crate::topology::{ExchangeDefinition, QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitConCallback;
@@ -226,8 +227,32 @@ impl RabbitClient {
         self.new_publisher_from_params(params).await
     }
 
-    pub async fn new_subscriber(&self, _exchange_params: ExchangeDefinition, queue_params: QueueDefinition) -> Result<Subscriber, String> {
-        Err("TODO".to_string())
+    pub async fn new_subscriber(&self, params: SubscribeParams) -> Result<Subscriber, String> {
+        debug!("new_publisher_from_params is wating for lock ...");
+        let mut guard = self.cont.lock().await;
+        debug!("new_publisher_from_params got lock");
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.max_worker_id += 1;
+        match Subscriber::new(client_cont.max_worker_id, self.tx_cmd.clone() , params).await {
+            Ok(subscriber) => {
+                {
+                    let mut worker_guard = subscriber.worker.lock().await;
+                    let worker: &mut Worker = &mut *worker_guard;
+                    match Self::set_channel_to_worker(&client_cont.connection,worker).await {
+                        Ok(_) => {
+                            client_cont.workers.push(subscriber.worker.clone());
+                        },
+                        Err(msg) => {
+                            return Err(msg);
+                        },
+                    }
+                }
+                return Ok(subscriber);
+            },
+            Err(msg) => {
+                return Err(msg);
+            },
+        }
     }
 
 
@@ -276,6 +301,24 @@ impl RabbitClient {
             Err(msg)
         }
     }
+
+    async fn remove_worker(cont: &Arc<Mutex<ClientImplCont>>, id_to_remove: u32) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+
+        let mut new_workers = vec![];
+
+        for worker in &client_cont.workers {
+            let worker_guard = worker.lock().await;
+            let w: &Worker = &*worker_guard;
+            if w.id != id_to_remove {
+                new_workers.push(worker.clone());
+            }
+        }
+    
+        client_cont.workers = new_workers;
+    }
+
 
     async fn provide_channel(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
         let mut guard = cont.lock().await;
@@ -390,7 +433,10 @@ impl RabbitClient {
                     ClientCommand::GetChannel(id) => {
                         debug!("received a get channel request for id={}", id);
                         RabbitClient::provide_channel(&cont, id).await
-                    }
+                    },
+                    ClientCommand::RemoveWorker(id) => {
+                        RabbitClient::remove_worker(&cont, id).await;
+                    },
                 }
             }
             error!("I am leaving the management task 8-o");
@@ -459,6 +505,12 @@ impl RabbitClient {
         }
     }
 
+    pub async fn get_worker_count(&self) -> usize {
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.workers.len()
+    }
+
 }
 
 pub struct ClientImplCont {
@@ -473,6 +525,7 @@ pub struct ClientImplCont {
 pub enum ClientCommand {
     Connect,
     GetChannel(u32),
+    RemoveWorker(u32),
 }
 
 impl std::fmt::Display for ClientCommand {
@@ -480,6 +533,7 @@ impl std::fmt::Display for ClientCommand {
         match self {
             ClientCommand::Connect => write!(f, "Connect"),
             ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
+            ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={})", id),
         }
     }
 }
