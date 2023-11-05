@@ -205,7 +205,7 @@ impl RabbitClient {
                 {
                     let mut worker_guard = publisher.worker.lock().await;
                     let worker: &mut Worker = &mut *worker_guard;
-                    match Self::set_channel_to_worker(&client_cont.connection,worker).await {
+                    match Self::set_channel_to_worker(&client_cont.connection,worker, false).await {
                         Ok(_) => {
                             client_cont.workers.push(publisher.worker.clone());
                         },
@@ -238,7 +238,7 @@ impl RabbitClient {
                 {
                     let mut worker_guard = subscriber.worker.lock().await;
                     let worker: &mut Worker = &mut *worker_guard;
-                    match Self::set_channel_to_worker(&client_cont.connection,worker).await {
+                    match Self::set_channel_to_worker(&client_cont.connection,worker, false).await {
                         Ok(_) => {
                             client_cont.workers.push(subscriber.worker.clone());
                         },
@@ -272,7 +272,7 @@ impl RabbitClient {
     }
 
 
-    pub async fn set_channel_to_worker(connection: &Option<Connection>, worker: &mut Worker) -> Result<(), String> {
+    pub async fn set_channel_to_worker(connection: &Option<Connection>, worker: &mut Worker, inform_worker: bool) -> Result<(), String> {
         if connection.is_some() {
             let connection = connection.as_ref().unwrap();
             match connection.open_channel(None).await {
@@ -283,9 +283,9 @@ impl RabbitClient {
                         .unwrap();
                     debug!("set channel for worker (id={})", worker.id);
                     worker.channel = Some(channel);
-                    if worker.tx_inform_about_new_channel.is_some() {
+                    if inform_worker && worker.tx_inform_about_new_channel.is_some() {
                         debug!("inform worker (id={}) about new channel", worker.id);
-                        worker.tx_inform_about_new_channel.as_ref().unwrap().send(worker.id).await;
+                        let _ = worker.tx_inform_about_new_channel.as_ref().unwrap().send(worker.id).await;
                     }
                     Ok(())
                 }
@@ -333,7 +333,7 @@ impl RabbitClient {
             let worker: &mut Worker = &mut *worker_guard;
             if worker.id == id {
                 found = true;
-                let _ = RabbitClient::set_channel_to_worker(&client_cont.connection, worker).await;
+                let _ = RabbitClient::set_channel_to_worker(&client_cont.connection, worker, true).await;
             }
         }
         if ! found {

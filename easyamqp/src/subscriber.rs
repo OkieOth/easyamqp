@@ -166,11 +166,8 @@ impl AsyncConsumer for SubscriberImpl {
                 return;
             }
         }
-        if self.auto_ack {
-            let args = BasicAckArguments::new(delivery_tag, false);
-            info!("ack delivery_tag={}", delivery_tag);
-            //channel.basic_ack(args).await.unwrap();
-        } else {
+        if ! self.auto_ack {
+            info!("wait for ack delivery_tag={} ...", delivery_tag);
             self.wait_for_subscription_response_and_ack(delivery_tag, &channel).await;
         }
     }
@@ -245,10 +242,10 @@ impl Subscriber {
                             exclusive: exclusive,
                         };
                         let args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag)
-                        .manual_ack(sub_impl.auto_ack)
+                        .manual_ack(!sub_impl.auto_ack)
                         .exclusive(sub_impl.exclusive)
                         .finish();
-    
+
                         match c.basic_consume(sub_impl, args).await {
                             Ok(_) => {
                                 debug!("subscription re-established");
@@ -289,13 +286,15 @@ impl Subscriber {
                         consumer_tag: self.params.consumer_tag.clone(),
                         exclusive: self.params.exclusive,
                     };
-                    let mut args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag);
-                    args.auto_ack(sub_impl.auto_ack);
-                    args.exclusive(sub_impl.exclusive);
+
+                    let args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag)
+                    .manual_ack(!sub_impl.auto_ack)
+                    .exclusive(sub_impl.exclusive)
+                    .finish();
 
                     match c.basic_consume(sub_impl, args).await {
                         Ok(_) => {
-                            //self.start_new_channel_listener(worker.callback.tx_req.clone()).await;
+                            self.start_new_channel_listener(worker.callback.tx_req.clone()).await;
                             return Ok((&mut self.rx_content, &self.tx_response));
                         },
                         Err(err) => {
