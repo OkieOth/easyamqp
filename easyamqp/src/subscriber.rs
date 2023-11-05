@@ -149,14 +149,15 @@ impl AsyncConsumer for SubscriberImpl {
         content: Vec<u8>,
     ) {
         debug!("consume is called");
+        let delivery_tag = deliver.delivery_tag();
         let sc = SubscriptionContent::new(
             deliver,
             basic_properties,
             content
             );
-        let delivery_tag = sc.delivery_tag;
         {
             let mut tx_content_guard = self.tx_content.lock().await;
+            info!("receive content for channel={}", channel.channel_id().to_string());
             let tx_content: &mut Sender<SubscriptionContent> = &mut *tx_content_guard;
 
             if let Err(e) = tx_content.send(sc).await {
@@ -167,7 +168,8 @@ impl AsyncConsumer for SubscriberImpl {
         }
         if self.auto_ack {
             let args = BasicAckArguments::new(delivery_tag, false);
-            channel.basic_ack(args).await.unwrap();
+            info!("ack delivery_tag={}", delivery_tag);
+            //channel.basic_ack(args).await.unwrap();
         } else {
             self.wait_for_subscription_response_and_ack(delivery_tag, &channel).await;
         }
@@ -242,9 +244,10 @@ impl Subscriber {
                             consumer_tag: consumer_tag.clone(),
                             exclusive: exclusive,
                         };
-                        let mut args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag);
-                        args.auto_ack(sub_impl.auto_ack);
-                        args.exclusive(sub_impl.exclusive);
+                        let args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag)
+                        .manual_ack(sub_impl.auto_ack)
+                        .exclusive(sub_impl.exclusive)
+                        .finish();
     
                         match c.basic_consume(sub_impl, args).await {
                             Ok(_) => {
@@ -276,6 +279,8 @@ impl Subscriber {
             let worker: &mut Worker = &mut *worker_guard;
             match &worker.channel {
                 Some(c) => {
+                    info!("subscribe for channel={}", c.channel_id().to_string());
+
                     let sub_impl = SubscriberImpl {
                         tx_content: self.tx_content.clone(),
                         rx_response: self.rx_response.clone(),
@@ -290,7 +295,7 @@ impl Subscriber {
 
                     match c.basic_consume(sub_impl, args).await {
                         Ok(_) => {
-                            self.start_new_channel_listener(worker.callback.tx_req.clone()).await;
+                            //self.start_new_channel_listener(worker.callback.tx_req.clone()).await;
                             return Ok((&mut self.rx_content, &self.tx_response));
                         },
                         Err(err) => {
