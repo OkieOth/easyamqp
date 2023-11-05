@@ -6,7 +6,7 @@ use easyamqp::{RabbitClient, RabbitConParams,
 use easyamqp::utils::get_env_var_str;
 use serde_json::Value;
 use serde_json_path::JsonPath;
-use tokio::time::{sleep, Duration};
+use tokio::time::{timeout, sleep, Duration};
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::task;
 use log::error;
@@ -432,16 +432,29 @@ fn test_simple_pub_sub() {
         }
         let mut received_count = 0;
         // TODO include timeout!
+        let mut failure_count = 0;
         loop {
-            match rx_content.recv().await {
-                Some(x) => {
-                    received_count += 1;
+            const TIMEOUT_SECS: u64 = 3;
+            match timeout(Duration::from_secs(TIMEOUT_SECS), rx_content.recv()).await {
+                Ok(timeout_result) => {
+                    match timeout_result {
+                        Some(_) => {
+                            received_count += 1;
+                        },
+                        None => {
+                            error!("didn't receive proper subscription response");
+                            failure_count += 1;
+                        },
+                    }
                 },
-                None => {
-                    break;
+                Err(_) => {
+                    // timeout
+                    error!("didn't receive subscription response in timeout ({} s)", TIMEOUT_SECS);
+                    failure_count += 1;
                 },
             }
-            if received_count == 10 {
+
+            if (received_count == 10) || (failure_count == 10) {
                 break;
             }
         }
