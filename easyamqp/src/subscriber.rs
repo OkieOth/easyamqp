@@ -198,6 +198,17 @@ impl Subscriber {
         Ok(ret)
     }
 
+    pub async fn subscribe_with_auto_ack(&mut self) -> Result<&mut Receiver<SubscriptionContent>, SubscribeError> {
+        match self.subscribe().await {
+            Ok((rx, _)) => {
+                Ok(rx)
+            },
+            Err(e) => {
+                Err(e)
+            }
+        }
+    }
+
     pub async fn subscribe(&mut self) -> Result<(&mut Receiver<SubscriptionContent>, &Sender<SubscriptionResponse>), SubscribeError> {
         let mut reconnect_millis = 500;
         let mut reconnect_attempts: u8 = 0;
@@ -254,6 +265,55 @@ pub struct SubscribeParams {
     pub exclusive: bool,
     pub consumer_tag: String,
 }
+
+impl SubscribeParams {
+    pub fn builder(queue_name: &str, consumer_tag: &str) -> SubscribeParamsBuilder {
+        SubscribeParamsBuilder::new(queue_name, consumer_tag)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SubscribeParamsBuilder {
+    pub auto_ack: Option<bool>,
+    pub queue_name: String,
+    pub exclusive: Option<bool>,
+    pub consumer_tag: String,
+}
+
+impl SubscribeParamsBuilder {
+    pub fn new(queue_name: &str, consumer_tag: &str) -> SubscribeParamsBuilder {
+        let mut r = SubscribeParamsBuilder::default();
+        r.queue_name = queue_name.to_string();
+        r.consumer_tag = consumer_tag.to_string();
+        r
+    }
+    pub fn auto_ack(mut self,v: bool) -> SubscribeParamsBuilder {
+        self.auto_ack = Some(v);
+        self
+    }
+    pub fn exclusive(mut self,v: bool) -> SubscribeParamsBuilder {
+        self.exclusive = Some(v);
+        self
+    }
+    pub fn build(&self) -> SubscribeParams {
+        let auto_ack = match self.auto_ack {
+            Some(b) => b,
+            None => false,
+        };
+        let exclusive = match self.exclusive {
+            Some(b) => b,
+            None => false,
+        };
+
+        SubscribeParams {
+            auto_ack,
+            queue_name: self.queue_name.clone(),
+            exclusive,
+            consumer_tag: self.consumer_tag.clone(),
+        }
+    }
+}
+
 
 pub enum SubscribeError {
     Todo,

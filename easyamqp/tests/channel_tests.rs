@@ -372,33 +372,25 @@ fn test_simple_pub_sub() {
             .password(&password)
             .build();
 
-
-
         let mut client = RabbitClient::new(params).await;
         client.connect().await.unwrap();
-        let exchange_def = ExchangeDefinition {
-            name: "test_simple_pub_sub".to_string(), 
-            exchange_type: ExchangeType::Topic,
-            durable: false, 
-            auto_delete: true };
-    
+        let exchange_def = ExchangeDefinition::builder("test_simple_pub_sub").build();
         let _ = client.declare_exchange(exchange_def).await;
-        let queue_def =     QueueDefinition { 
-            name: "test_simple_pub_sub.queue".to_string(), 
-            durable: true,
-            exclusive: true, 
-            auto_delete: true };
-    
+        
+        let queue_def = QueueDefinition::builder("test_simple_pub_sub.queue")
+            .durable(true)
+            .exclusive(true)
+            .auto_delete(true)
+            .build();
         let _ = client.declare_queue(queue_def).await;
-        let binding_def = QueueBindingDefinition {
-            exchange: "test_simple_pub_sub".to_string(),
-            queue: "test_simple_pub_sub.queue".to_string(),
-            routing_key: "test".to_string()};
+        let binding_def = QueueBindingDefinition::new("test_simple_pub_sub.queue", "test_simple_pub_sub", "test"); 
         let _ = client.declare_queue_binding(binding_def).await;
 
-        let mut pub_params = PublisherParams::default();
-        pub_params.exchange = Some("test_simple_pub_sub".to_string());
-        pub_params.routing_key = Some("test".to_string());
+        let mut pub_params = PublisherParams::builder()
+            .exchange("test_simple_pub_sub")
+            .routing_key("test")
+            .build();
+
         let p1: Publisher = client.new_publisher_from_params(pub_params).await.unwrap();
         assert_eq!(1, client.get_worker_count().await);
 
@@ -412,7 +404,6 @@ fn test_simple_pub_sub() {
                 "#,
             )
             .into_bytes();
-
             for i in 0 .. 10 {
                 if let Err(e) = p1.publish(content.clone()).await {
                     error!("error while publishing {i}: {}", e.to_string());
@@ -420,12 +411,10 @@ fn test_simple_pub_sub() {
             }
         });
 
-        let sub_params = SubscribeParams {
-            auto_ack: true,
-            queue_name: "test_simple_pub_sub.queue".to_string(),
-            exclusive: true,
-            consumer_tag: "first_subscriber".to_string(),
-        };
+        let sub_params = SubscribeParams::builder("test_simple_pub_sub.queue", "test_simple_pub_sub")
+            .auto_ack(true)
+            .exclusive(true)
+            .build();
 
         let mut subscriber: Subscriber;
         if let Ok(s) = client.new_subscriber(sub_params).await {
@@ -435,7 +424,7 @@ fn test_simple_pub_sub() {
             return;
         }
         let rx_content: &mut Receiver<SubscriptionContent>;
-        if let Ok((rxc, _) ) = subscriber.subscribe().await {
+        if let Ok(rxc ) = subscriber.subscribe_with_auto_ack().await {
             rx_content = rxc;
         } else {
             assert!(false);
