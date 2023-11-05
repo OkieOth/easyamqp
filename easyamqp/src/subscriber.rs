@@ -109,6 +109,34 @@ struct SubscriberImpl {
     pub exclusive: bool,
 }
 
+impl SubscriberImpl {
+    async fn wait_for_subscription_response_and_ack(&mut self, delivery_tag: u64, channel: &Channel) {
+        const TIMEOUT_SECS: u64 = 30;
+        let mut rx_response_guard = self.rx_response.lock().await;
+        let rx_response: &mut Receiver<SubscriptionResponse> = &mut *rx_response_guard;
+        match timeout(Duration::from_secs(TIMEOUT_SECS), rx_response.recv()).await {
+            Ok(timeout_result) => {
+                match timeout_result {
+                    Some(resp) => {
+                        if resp.ack {
+                            let args = BasicAckArguments::new(delivery_tag, false);
+                            channel.basic_ack(args).await.unwrap();
+                        }
+                    },
+                    None => {
+                        error!("didn't receive proper subscription response");
+                        // left the message unacknoledged
+                    },
+                }
+            },
+            Err(_) => {
+                // timeout
+                error!("didn't receive subscription response in timeout ({} s)", TIMEOUT_SECS);
+            },
+        }
+    }
+}
+
 
 #[async_trait::async_trait]
 impl AsyncConsumer for SubscriberImpl {
@@ -136,37 +164,13 @@ impl AsyncConsumer for SubscriberImpl {
                 return;
             }
         }
-        const TIMEOUT_SECS: u64 = 30;
-        {
-            let mut rx_response_guard = self.rx_response.lock().await;
-            let rx_response: &mut Receiver<SubscriptionResponse> = &mut *rx_response_guard;
-            match timeout(Duration::from_secs(TIMEOUT_SECS), rx_response.recv()).await {
-                Ok(timeout_result) => {
-                    match timeout_result {
-                        Some(resp) => {
-                            if resp.ack {
-                                let args = BasicAckArguments::new(delivery_tag, false);
-                                channel.basic_ack(args).await.unwrap();
-                            }
-                        },
-                        None => {
-                            error!("didn't receive proper subscription response");
-                            // left the message unacknoledged
-                        },
-                    }
-                },
-                Err(_) => {
-                    // timeout
-                    error!("didn't receive subscription response in timeout ({} s)", TIMEOUT_SECS);
-                },
-            }
-        }
         if self.auto_ack {
             let args = BasicAckArguments::new(delivery_tag, false);
             channel.basic_ack(args).await.unwrap();
+        } else {
+            self.wait_for_subscription_response_and_ack(delivery_tag, &channel).await;
         }
     }
-
 }
 
 impl Subscriber {
@@ -194,7 +198,7 @@ impl Subscriber {
         Ok(ret)
     }
 
-    pub async fn subscibe(&self) -> Result<(&Receiver<SubscriptionContent>, &Sender<SubscriptionResponse>), SubscribeError> {
+    pub async fn subscribe(&mut self) -> Result<(&mut Receiver<SubscriptionContent>, &Sender<SubscriptionResponse>), SubscribeError> {
         let mut reconnect_millis = 500;
         let mut reconnect_attempts: u8 = 0;
         let max_reconnect_attempts = 5;
@@ -203,7 +207,6 @@ impl Subscriber {
             let worker: &mut Worker = &mut *worker_guard;
             match &worker.channel {
                 Some(c) => {
-
                     let sub_impl = SubscriberImpl {
                         tx_content: self.tx_content.clone(),
                         rx_response: self.rx_response.clone(),
@@ -211,7 +214,6 @@ impl Subscriber {
                         queue_name: self.params.queue_name.clone(),
                         consumer_tag: self.params.consumer_tag.clone(),
                         exclusive: self.params.exclusive,
-                    
                     };
                     let mut args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag);
                     args.auto_ack(sub_impl.auto_ack);
@@ -219,7 +221,7 @@ impl Subscriber {
 
                     match c.basic_consume(sub_impl, args).await {
                         Ok(_) => {
-                            return Ok((&self.rx_content, &self.tx_response));
+                            return Ok((&mut self.rx_content, &self.tx_response));
                         },
                         Err(err) => {
                             return Err(SubscribeError::SubscribeError(err.to_string()));

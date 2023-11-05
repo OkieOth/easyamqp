@@ -11,6 +11,7 @@ pub use topology::{ExchangeDefinition, ExchangeType, ExchangeDefinitionBuilder,
     QueueDefinition, QueueDefinitionBuilder, QueueBindingDefinition};
 pub use publisher::{Publisher, PublishError, PublisherParams, PublishingParams,
     PublisherParamsBuilder, PublishingParamsBuilder};
-pub fn dummy() {
+pub use subscriber::{Subscriber, SubscribeParams, SubscriptionContent};
+    pub fn dummy() {
     println!("    Hello, from the lib!");
 }

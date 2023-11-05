@@ -1,11 +1,15 @@
 use easyamqp::{RabbitClient, RabbitConParams, 
     ExchangeDefinition, ExchangeType,
-    QueueDefinition, QueueBindingDefinition};
+    QueueDefinition, QueueBindingDefinition,
+    Publisher, PublisherParams, 
+    Subscriber, SubscribeParams, SubscriptionContent};
 use easyamqp::utils::get_env_var_str;
 use serde_json::Value;
 use serde_json_path::JsonPath;
-use easyamqp::{Publisher};
 use tokio::time::{sleep, Duration};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::task;
+use log::error;
 
 fn extract_json_names(json_str: &str) -> Vec<String> {
     //println!("{}", conn_json_str);
@@ -347,5 +351,111 @@ fn test_deregister_of_deleted_publishers() {
         drop(_p3);
         sleep( sleep_time ).await;
         assert_eq!(0, client.get_worker_count().await);
+    });
+}
+
+#[test]
+#[ignore]
+fn test_simple_pub_sub() {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+        let user_name = get_env_var_str("RABBIT_USER", "guest");
+        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
+
+
+
+        let mut client = RabbitClient::new(params).await;
+        client.connect().await.unwrap();
+        let exchange_def = ExchangeDefinition {
+            name: "test_simple_pub_sub".to_string(), 
+            exchange_type: ExchangeType::Topic,
+            durable: false, 
+            auto_delete: true };
+    
+        let _ = client.declare_exchange(exchange_def).await;
+        let queue_def =     QueueDefinition { 
+            name: "test_simple_pub_sub.queue".to_string(), 
+            durable: true,
+            exclusive: true, 
+            auto_delete: true };
+    
+        let _ = client.declare_queue(queue_def).await;
+        let binding_def = QueueBindingDefinition {
+            exchange: "test_simple_pub_sub".to_string(),
+            queue: "test_simple_pub_sub.queue".to_string(),
+            routing_key: "test".to_string()};
+        let _ = client.declare_queue_binding(binding_def).await;
+
+        let mut pub_params = PublisherParams::default();
+        pub_params.exchange = Some("test_simple_pub_sub".to_string());
+        pub_params.routing_key = Some("test".to_string());
+        let p1: Publisher = client.new_publisher_from_params(pub_params).await.unwrap();
+        assert_eq!(1, client.get_worker_count().await);
+
+        task::spawn(async move {
+            let content = String::from(
+                r#"
+                    {
+                        "publisher": "example"
+                        "data": "Hello, amqprs!"
+                    }
+                "#,
+            )
+            .into_bytes();
+
+            for i in 0 .. 10 {
+                if let Err(e) = p1.publish(content.clone()).await {
+                    error!("error while publishing {i}: {}", e.to_string());
+                }
+            }
+        });
+
+        let sub_params = SubscribeParams {
+            auto_ack: true,
+            queue_name: "test_simple_pub_sub.queue".to_string(),
+            exclusive: true,
+            consumer_tag: "first_subscriber".to_string(),
+        };
+
+        let mut subscriber: Subscriber;
+        if let Ok(s) = client.new_subscriber(sub_params).await {
+            subscriber = s;
+        } else {
+            assert!(false);
+            return;
+        }
+        let rx_content: &mut Receiver<SubscriptionContent>;
+        if let Ok((rxc, _) ) = subscriber.subscribe().await {
+            rx_content = rxc;
+        } else {
+            assert!(false);
+            return;
+        }
+        let mut received_count = 0;
+        // TODO include timeout!
+        loop {
+            match rx_content.recv().await {
+                Some(x) => {
+                    received_count += 1;
+                },
+                None => {
+                    break;
+                },
+            }
+            if received_count == 10 {
+                break;
+            }
+        }
+        assert_eq!(10, received_count);
     });
 }
