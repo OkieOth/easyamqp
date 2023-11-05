@@ -21,6 +21,7 @@ pub struct Subscriber {
     pub rx_content: Receiver<SubscriptionContent>,
     pub tx_response: Sender<SubscriptionResponse>,
     pub rx_response: Arc<Mutex<Receiver<SubscriptionResponse>>>,
+    pub rx_inform_about_new_channel: Arc<Mutex<Receiver<u32>>>,
 }
 
 impl Drop for Subscriber {
@@ -179,10 +180,12 @@ impl Subscriber {
             tx_req,
             id,
         };
+        let (tx_inform_about_new_channel, rx_inform_about_new_channel): (Sender<u32>, Receiver<u32>) = channel(1);
         let worker_cont = Worker {
             id,
             channel: None,
             callback,
+            tx_inform_about_new_channel: Some(tx_inform_about_new_channel),
         };
         let (tx_content, rx_content): (Sender<SubscriptionContent>, Receiver<SubscriptionContent>) = channel(1);
         let (tx_response, rx_response): (Sender<SubscriptionResponse>, Receiver<SubscriptionResponse>) = channel(1);
@@ -194,6 +197,7 @@ impl Subscriber {
             rx_content: rx_content,
             tx_response: tx_response,
             rx_response: Arc::new(Mutex::new(rx_response)),
+            rx_inform_about_new_channel: Arc::new(Mutex::new(rx_inform_about_new_channel)),
         };
         Ok(ret)
     }
@@ -207,6 +211,60 @@ impl Subscriber {
                 Err(e)
             }
         }
+    }
+
+    pub async fn start_new_channel_listener(&self, tx_req: Sender<ClientCommand>) {
+        let rx_inform_about_new_channel = self.rx_inform_about_new_channel.clone();
+        let w = self.worker.clone();
+
+        let tx_content = self.tx_content.clone();
+        let rx_response = self.rx_response.clone();
+        let auto_ack = self.params.auto_ack;
+        let queue_name = self.params.queue_name.clone();
+        let consumer_tag = self.params.consumer_tag.clone();
+        let exclusive = self.params.exclusive;
+
+        task::spawn(async move {
+            loop {
+                let rx: &mut Receiver<u32>;
+                let mut guard = rx_inform_about_new_channel.lock().await;
+                rx = &mut *guard;
+                let _ = rx.recv().await;
+                let mut worker_guard = w.lock().await;
+                let worker: &mut Worker = &mut *worker_guard;
+                match &worker.channel {
+                    Some(c) => {
+                        let sub_impl = SubscriberImpl {
+                            tx_content: tx_content.clone(),
+                            rx_response: rx_response.clone(),
+                            auto_ack: auto_ack,
+                            queue_name: queue_name.clone(),
+                            consumer_tag: consumer_tag.clone(),
+                            exclusive: exclusive,
+                        };
+                        let mut args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag);
+                        args.auto_ack(sub_impl.auto_ack);
+                        args.exclusive(sub_impl.exclusive);
+    
+                        match c.basic_consume(sub_impl, args).await {
+                            Ok(_) => {
+                                debug!("subscription re-established");
+                            },
+                            Err(err) => {
+                                let msg = format!("error while re-create subscription (worker: {}): {}", worker.id, err.to_string());
+                                error!("{}", &msg);
+                                let _ = tx_req.send(ClientCommand::Panic(msg)).await;
+                            },
+                        }
+                    },
+                    None => {
+                        let msg = format!("error while re-create subscription (worker: {}): channel is None", worker.id);
+                        error!("{}", &msg);
+                        let _ = tx_req.send(ClientCommand::Panic(msg)).await;
+                    },
+                }
+            }
+        });
     }
 
     pub async fn subscribe(&mut self) -> Result<(&mut Receiver<SubscriptionContent>, &Sender<SubscriptionResponse>), SubscribeError> {
@@ -232,6 +290,7 @@ impl Subscriber {
 
                     match c.basic_consume(sub_impl, args).await {
                         Ok(_) => {
+                            self.start_new_channel_listener(worker.callback.tx_req.clone()).await;
                             return Ok((&mut self.rx_content, &self.tx_response));
                         },
                         Err(err) => {

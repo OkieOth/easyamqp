@@ -283,6 +283,10 @@ impl RabbitClient {
                         .unwrap();
                     debug!("set channel for worker (id={})", worker.id);
                     worker.channel = Some(channel);
+                    if worker.tx_inform_about_new_channel.is_some() {
+                        debug!("inform worker (id={}) about new channel", worker.id);
+                        worker.tx_inform_about_new_channel.as_ref().unwrap().send(worker.id).await;
+                    }
                     Ok(())
                 }
                 Err(e) => {
@@ -330,29 +334,6 @@ impl RabbitClient {
             if worker.id == id {
                 found = true;
                 let _ = RabbitClient::set_channel_to_worker(&client_cont.connection, worker).await;
-                // if client_cont.connection.is_some() {
-                //     let connection = client_cont.connection.as_ref().unwrap();
-                //     match connection.open_channel(None).await {
-                //         Ok(channel) => {
-                //             channel
-                //                 .register_callback(worker.callback.clone())
-                //                 .await
-                //                 .unwrap();
-                //             debug!("set channel for worker (id={})", worker.id);
-                //             worker.channel = Some(channel);
-                //         }
-                //         Err(e) => {
-                //             error!(
-                //                 "error while creating channel for worker (id={}): {}",
-                //                 id,
-                //                 e.to_string()
-                //             );
-                //         }
-                //     }
-
-                // } else {
-                //     warn!("no connection, unable to provide channel for worker (id={})", id);
-                // }
             }
         }
         if ! found {
@@ -437,6 +418,9 @@ impl RabbitClient {
                     ClientCommand::RemoveWorker(id) => {
                         RabbitClient::remove_worker(&cont, id).await;
                     },
+                    ClientCommand::Panic(msg) => {
+                        RabbitClient::send_panic(msg, &cont).await;
+                    }
                 }
             }
             error!("I am leaving the management task 8-o");
@@ -526,6 +510,7 @@ pub enum ClientCommand {
     Connect,
     GetChannel(u32),
     RemoveWorker(u32),
+    Panic(String),
 }
 
 impl std::fmt::Display for ClientCommand {
@@ -534,6 +519,7 @@ impl std::fmt::Display for ClientCommand {
             ClientCommand::Connect => write!(f, "Connect"),
             ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
             ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={})", id),
+            ClientCommand::Panic(msg) => write!(f, "Panic(msg={})", msg),
         }
     }
 }

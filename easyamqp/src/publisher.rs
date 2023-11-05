@@ -39,6 +39,7 @@ impl Publisher {
             id,
             channel: None,
             callback,
+            tx_inform_about_new_channel: None,
         };
         Ok(Publisher {
             params,
