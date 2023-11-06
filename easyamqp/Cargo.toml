@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 log = "0.4.20"
 tokio = { version = "1.29.1", features = ["full"] }
-amqprs = "1.4.0"
+amqprs = "1.5.1"
 async-trait = "0.1.73"
 
 [dev-dependencies]

@@ -1,16 +1,16 @@
-use crate::{worker::Worker, rabbitclient::ClientCommand};
+use std::sync::Arc;
+use log::{debug, error, info, warn};
+
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep, timeout};
-use std::sync::Arc;
-
 use tokio::task;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
-use crate::callbacks::RabbitChannelCallback;
-use log::{debug, error, info, warn};
 use amqprs::consumer::AsyncConsumer;
 use amqprs::channel::{BasicAckArguments, BasicConsumeArguments, Channel};
 use amqprs::{Deliver, BasicProperties};
-
+use crate::topology::{QueueDefinition, QueueBindingDefinition};
+use crate::callbacks::RabbitChannelCallback;
+use crate::{worker::Worker, rabbitclient::ClientCommand};
 
 
 pub struct Subscriber {
@@ -108,6 +108,8 @@ struct SubscriberImpl {
     pub queue_name: String,
     pub consumer_tag: String,
     pub exclusive: bool,
+    pub queue: Option<QueueDefinition>,
+    pub queue_binding: Option<QueueBindingDefinition>,
 }
 
 impl SubscriberImpl {
@@ -222,6 +224,8 @@ impl Subscriber {
         let queue_name = self.params.queue_name.clone();
         let consumer_tag = self.params.consumer_tag.clone();
         let exclusive = self.params.exclusive;
+        let queue = self.params.queue.clone();
+        let queue_binding = self.params.queue_binding.clone();
 
         task::spawn(async move {
             loop {
@@ -240,6 +244,8 @@ impl Subscriber {
                             queue_name: queue_name.clone(),
                             consumer_tag: consumer_tag.clone(),
                             exclusive: exclusive,
+                            queue: queue.clone(),
+                            queue_binding: queue_binding.clone(),
                         };
                         let args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag)
                         .manual_ack(!sub_impl.auto_ack)
@@ -285,6 +291,8 @@ impl Subscriber {
                         queue_name: self.params.queue_name.clone(),
                         consumer_tag: self.params.consumer_tag.clone(),
                         exclusive: self.params.exclusive,
+                        queue: self.params.queue.clone(),
+                        queue_binding: self.params.queue_binding.clone(),
                     };
 
                     let args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag)
@@ -327,6 +335,8 @@ pub struct SubscribeParams {
     pub queue_name: String,
     pub exclusive: bool,
     pub consumer_tag: String,
+    pub queue: Option<QueueDefinition>,
+    pub queue_binding: Option<QueueBindingDefinition>
 }
 
 impl SubscribeParams {
@@ -341,6 +351,8 @@ pub struct SubscribeParamsBuilder {
     pub queue_name: String,
     pub exclusive: Option<bool>,
     pub consumer_tag: String,
+    pub queue: Option<QueueDefinition>,
+    pub queue_binding: Option<QueueBindingDefinition>,
 }
 
 impl SubscribeParamsBuilder {
@@ -358,6 +370,17 @@ impl SubscribeParamsBuilder {
         self.exclusive = Some(v);
         self
     }
+ 
+    pub fn queue(mut self,v: QueueDefinition) -> SubscribeParamsBuilder {
+        self.queue = Some(v);
+        self
+    }
+
+    pub fn queue_binding(mut self, v: QueueBindingDefinition) -> SubscribeParamsBuilder {
+        self.queue_binding = Some(v);
+        self
+    }
+ 
     pub fn build(&self) -> SubscribeParams {
         let auto_ack = match self.auto_ack {
             Some(b) => b,
@@ -373,6 +396,8 @@ impl SubscribeParamsBuilder {
             queue_name: self.queue_name.clone(),
             exclusive,
             consumer_tag: self.consumer_tag.clone(),
+            queue: self.queue.clone(),
+            queue_binding: self.queue_binding.clone(),
         }
     }
 }

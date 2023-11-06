@@ -55,9 +55,12 @@ impl ChannelCallback for RabbitChannelCallback {
         Ok(())
     }
     async fn cancel(&mut self, _channel: &Channel, _cancel: Cancel) -> Result<()> {
+        warn!("queue was closed");
+        let _ = self.tx_req.send(ClientCommand::CheckQueues).await;
         Ok(())
     }
     async fn flow(&mut self, _channel: &Channel, _active: bool) -> Result<bool> {
+        warn!("what does flow mean?");
         Ok(true)
     }
     async fn publish_ack(&mut self, _channel: &Channel, _ack: Ack) {}

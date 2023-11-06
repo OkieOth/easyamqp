@@ -349,9 +349,9 @@ impl RabbitClient {
         let mut reconnect_attempts: u8 = 0;
         let mut success: bool;
         loop {
-            success = client_cont.topology.declare_all_exchanges().await.is_ok() &&
-            client_cont.topology.declare_all_queues().await.is_ok() &&
-            client_cont.topology.declare_all_bindings().await.is_ok();
+            success = client_cont.topology.declare_all_exchanges(client_cont.connection.as_ref().unwrap()).await.is_ok() &&
+            client_cont.topology.declare_all_queues(client_cont.connection.as_ref().unwrap()).await.is_ok() &&
+            client_cont.topology.declare_all_bindings(client_cont.connection.as_ref().unwrap()).await.is_ok();
             if ! success {
                 if reconnect_attempts > client_cont.max_reconnect_attempts {
                     let msg = format!("reached maximum attempts ({}) to reestablish topology, and stop trying",
@@ -418,6 +418,9 @@ impl RabbitClient {
                     ClientCommand::RemoveWorker(id) => {
                         RabbitClient::remove_worker(&cont, id).await;
                     },
+                    ClientCommand::CheckQueues => {
+                        RabbitClient::recreate_topology(&cont).await;
+                    }
                     ClientCommand::Panic(msg) => {
                         RabbitClient::send_panic(msg, &cont).await;
                     }
@@ -510,6 +513,7 @@ pub enum ClientCommand {
     Connect,
     GetChannel(u32),
     RemoveWorker(u32),
+    CheckQueues,
     Panic(String),
 }
 
@@ -519,6 +523,7 @@ impl std::fmt::Display for ClientCommand {
             ClientCommand::Connect => write!(f, "Connect"),
             ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
             ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={})", id),
+            ClientCommand::CheckQueues => write!(f, "CheckQueues"),
             ClientCommand::Panic(msg) => write!(f, "Panic(msg={})", msg),
         }
     }

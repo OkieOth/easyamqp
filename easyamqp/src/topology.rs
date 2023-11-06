@@ -193,17 +193,32 @@ pub struct Topology {
 
 
 impl Topology {
-    pub async fn declare_all_exchanges(&self) -> Result<(), String> {
+    pub async fn declare_all_exchanges(&self, con: &Connection) -> Result<(), String> {
+        for e in self.exchanges.iter() {
+            if let Err(e) = self.declare_exchange_base(e, con).await {
+                return Err(e);
+            }
+        }
         Ok(())
     }
-    pub async fn declare_all_queues(&self) -> Result<(), String> {
+    pub async fn declare_all_queues(&self, con: &Connection) -> Result<(), String> {
+        for q in self.queues.iter() {
+            if let Err(e) = self.declare_queue_base(q, con).await {
+                return Err(e);
+            }
+        }
         Ok(())
     }
-    pub async fn declare_all_bindings(&self) -> Result<(), String> {
+    pub async fn declare_all_bindings(&self, con: &Connection) -> Result<(), String> {
+        for b in self.bindings.iter() {
+            if let Err(e) = self.declare_queue_binding_base(b, con).await {
+                return Err(e);
+            }
+        }
         Ok(())
     }
 
-    pub async fn declare_exchange(&mut self,exchange_def: ExchangeDefinition, con: &Connection) -> Result<(), String> {
+    async fn declare_exchange_base(&self,exchange_def: &ExchangeDefinition, con: &Connection) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
         let type_str: String = exchange_def.exchange_type.to_string();
         let mut args = ExchangeDeclareArguments::new(
@@ -213,15 +228,25 @@ impl Topology {
         if let Err(e) = channel.exchange_declare(args).await {
             return Err(e.to_string());
         };
-        // if the exchange is of type auto_delete, maybe the topology needs to be restored
-        // after a connection loss
-        if exchange_def.auto_delete {
-            self.exchanges.push(exchange_def);
-        }
         Ok(())
     }
 
-    pub async fn declare_queue(&mut self, queue_def: QueueDefinition, con: &Connection) -> Result<(), String> {
+
+    pub async fn declare_exchange(&mut self,exchange_def: ExchangeDefinition, con: &Connection) -> Result<(), String> {
+        match self.declare_exchange_base(&exchange_def, con).await {
+            Ok(_) => {
+                if exchange_def.auto_delete {
+                    self.exchanges.push(exchange_def);
+                }
+                Ok(())
+            },
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+
+    async fn declare_queue_base(&self, queue_def: &QueueDefinition, con: &Connection) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
         let queue_name = queue_def.name.as_str();
         let mut args = QueueDeclareArguments::new(queue_name);
@@ -230,18 +255,28 @@ impl Topology {
         if let Err(e) = channel.queue_declare(args).await {
             return Err(e.to_string());
         };
-        // if the exchange is of type auto_delete, maybe the topology needs to be restored
-        // after a connection loss
-        if queue_def.auto_delete {
-            self.queues.push(queue_def);
-        }
         Ok(())
     }
 
-    pub async fn declare_queue_binding(&mut self, binding_def: QueueBindingDefinition, con: &Connection) -> Result<(), String> {
+
+    pub async fn declare_queue(&mut self, queue_def: QueueDefinition, con: &Connection) -> Result<(), String> {
+        match self.declare_queue_base(&queue_def, con).await {
+            Ok(_) => {
+                // if the exchange is of type auto_delete, maybe the topology needs to be restored
+                // after a connection loss
+                if queue_def.auto_delete {
+                    self.queues.push(queue_def);
+                }
+                Ok(())
+            },
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+
+    async fn declare_queue_binding_base(&self, binding_def: &QueueBindingDefinition, con: &Connection) -> Result<(), String> {
         let channel = con.open_channel(None).await.unwrap();
-        let queue_name = binding_def.queue.clone();
-        let exchange_name = binding_def.exchange.clone();
         let args = QueueBindArguments::new(
             &binding_def.queue.as_str(),
             &binding_def.exchange.as_str(),
@@ -249,24 +284,37 @@ impl Topology {
         if let Err(e) = channel.queue_bind(args).await {
             return Err(e.to_string());
         };
-        // if the exchange is of type auto_delete, maybe the topology needs to be restored
-        // after a connection loss
-        {
-            let exchange_result = self.exchanges
-                .iter()
-                .filter(|item| (item.name == exchange_name) && (item.auto_delete == true))
-                .next();
-            let queue_result = self.queues
-                .iter()
-                .filter(|item| (item.name == queue_name) && (item.auto_delete == true))
-                .next();
-            if exchange_result.is_some() || queue_result.is_some() {
-                self.bindings.push(binding_def);
-            }
-        }
         Ok(())
     }
 
+
+    pub async fn declare_queue_binding(&mut self, binding_def: QueueBindingDefinition, con: &Connection) -> Result<(), String> {
+        match self.declare_queue_binding_base(&binding_def, con).await {
+            Ok(_) => {
+                // if the exchange is of type auto_delete, maybe the topology needs to be restored
+                // after a connection loss
+                {
+                    let exchange_name = &binding_def.exchange;
+                    let queue_name = &binding_def.queue;
+                    let exchange_result = self.exchanges
+                        .iter()
+                        .filter(|item| (item.name == *exchange_name) && (item.auto_delete == true))
+                        .next();
+                    let queue_result = self.queues
+                        .iter()
+                        .filter(|item| (item.name == *queue_name) && (item.auto_delete == true))
+                        .next();
+                    if exchange_result.is_some() || queue_result.is_some() {
+                        self.bindings.push(binding_def);
+                    }
+                }
+                Ok(())
+            },
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

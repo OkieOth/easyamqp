@@ -236,9 +236,13 @@ fn main() {
                 }
             });
 
+            let queue = get_queue_def1();
+            let queue_binding = get_binding_def1();
             let sub_params = SubscribeParams::builder("test_q_1", "test_q_1.consumer")
             .auto_ack(false)
             .exclusive(true)
+            .queue(queue)
+            .queue_binding(queue_binding)
             .build();
             let mut subscriber: Subscriber;
             if let Ok(s) = client.new_subscriber(sub_params).await {
