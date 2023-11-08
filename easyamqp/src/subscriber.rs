@@ -31,7 +31,7 @@ impl Drop for Subscriber {
             let mut worker_guard = w.lock().await;
             let worker: &mut Worker = &mut *worker_guard;
             debug!("worker (id={}) will be deleted", worker.id);
-            if let Err(e) = worker.callback.tx_req.send(ClientCommand::RemoveWorker(worker.id)).await {
+            if let Err(e) = worker.callback.tx_req.send(ClientCommand::RemoveSubscriber(worker.id)).await {
                 error!("error while sending request to delete worker (id={}): {}",
                 worker.id, e.to_string());
             }

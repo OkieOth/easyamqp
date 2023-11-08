@@ -1,4 +1,6 @@
 
+use std::collections::HashMap;
+
 use amqprs::{
     channel::{ExchangeDeclareArguments, QueueDeclareArguments, QueueBindArguments},
     connection::Connection,
@@ -189,10 +191,20 @@ pub struct Topology {
     pub exchanges: Vec<ExchangeDefinition>,
     pub queues: Vec<QueueDefinition>,
     pub bindings: Vec<QueueBindingDefinition>,
+    subscribers: HashMap<String,()>,
 }
 
 
 impl Topology {
+    pub fn new() -> Topology {
+        Topology { 
+            exchanges: Vec::new(), 
+            queues: Vec::new(), 
+            bindings: Vec::new(), 
+            subscribers: HashMap::new() 
+        }
+    }
+
     pub async fn declare_all_exchanges(&self, con: &Connection) -> Result<(), String> {
         for e in self.exchanges.iter() {
             if let Err(e) = self.declare_exchange_base(e, con).await {
@@ -314,6 +326,14 @@ impl Topology {
                 return Err(e);
             }
         }
+    }
+
+    pub async fn register_subscriber() {
+        // TODO
+    }
+
+    pub async fn unregister_subriber() {
+        // TODO
     }
 }
 

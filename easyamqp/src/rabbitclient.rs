@@ -107,11 +107,7 @@ impl RabbitClient {
         let con_callback = RabbitConCallback {
             tx_cmd: tx_cmd.clone(),
         };
-        let top = Topology {
-            exchanges: Vec::new(),
-            queues: Vec::new(),
-            bindings: Vec::new(),
-        };
+        let top = Topology::new();
         let cont_impl = ClientImplCont {
             connection: None,
             tx_panic: None,
@@ -418,6 +414,9 @@ impl RabbitClient {
                     ClientCommand::RemoveWorker(id) => {
                         RabbitClient::remove_worker(&cont, id).await;
                     },
+                    ClientCommand::RemoveSubscriber(id) => {
+                        RabbitClient::remove_worker(&cont, id).await;
+                    },
                     ClientCommand::CheckQueues => {
                         RabbitClient::recreate_topology(&cont).await;
                     }
@@ -513,6 +512,7 @@ pub enum ClientCommand {
     Connect,
     GetChannel(u32),
     RemoveWorker(u32),
+    RemoveSubscriber(u32),
     CheckQueues,
     Panic(String),
 }
@@ -523,6 +523,7 @@ impl std::fmt::Display for ClientCommand {
             ClientCommand::Connect => write!(f, "Connect"),
             ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
             ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={})", id),
+            ClientCommand::RemoveSubscriber(id) => write!(f, "RemoveSubscriber(id={})", id),
             ClientCommand::CheckQueues => write!(f, "CheckQueues"),
             ClientCommand::Panic(msg) => write!(f, "Panic(msg={})", msg),
         }
