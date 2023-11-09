@@ -1,10 +1,13 @@
 
 use std::collections::HashMap;
+use tokio::sync::mpsc::Sender;
 
 use amqprs::{
     channel::{ExchangeDeclareArguments, QueueDeclareArguments, QueueBindArguments},
     connection::Connection,
 };
+
+use crate::subscriber;
 
 
 #[derive(Debug, Clone, Default)]
@@ -186,22 +189,28 @@ impl QueueBindingDefinition {
     }
 }
 
+struct Subscriber {
+    id: u32,
+    queue: Option<String>,
+    tx_inform_about_new_channel: Option<Sender<u32>>,
+}
+
 
 pub struct Topology {
     pub exchanges: Vec<ExchangeDefinition>,
     pub queues: Vec<QueueDefinition>,
     pub bindings: Vec<QueueBindingDefinition>,
-    subscribers: HashMap<String,()>,
+    subscribers: Vec<Subscriber>,
 }
 
 
 impl Topology {
     pub fn new() -> Topology {
         Topology { 
-            exchanges: Vec::new(), 
-            queues: Vec::new(), 
-            bindings: Vec::new(), 
-            subscribers: HashMap::new() 
+            exchanges: Vec::new(),
+            queues: Vec::new(),
+            bindings: Vec::new(),
+            subscribers: Vec::new(),
         }
     }
 
@@ -328,12 +337,17 @@ impl Topology {
         }
     }
 
-    pub async fn register_subscriber() {
-        // TODO
+    pub async fn register_subscriber(&mut self, id: u32) {
+        let s = Subscriber {
+            id,
+            queue: None,
+            tx_inform_about_new_channel: None,
+        };
+        self.subscribers.push(s);
     }
 
-    pub async fn unregister_subriber() {
-        // TODO
+    pub async fn remove_subscriber(&mut self, id_to_remove: u32) {
+        self.subscribers.retain(|s| s.id != id_to_remove );
     }
 }
 

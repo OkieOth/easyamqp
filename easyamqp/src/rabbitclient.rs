@@ -237,6 +237,7 @@ impl RabbitClient {
                     match Self::set_channel_to_worker(&client_cont.connection,worker, false).await {
                         Ok(_) => {
                             client_cont.workers.push(subscriber.worker.clone());
+                            client_cont.topology.register_subscriber(worker.id).await;
                         },
                         Err(msg) => {
                             return Err(msg);
@@ -317,6 +318,12 @@ impl RabbitClient {
         }
     
         client_cont.workers = new_workers;
+    }
+
+    async fn remove_subscriber(cont: &Arc<Mutex<ClientImplCont>>, id_to_remove: u32) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.topology.remove_subscriber(id_to_remove).await;
     }
 
 
@@ -416,6 +423,7 @@ impl RabbitClient {
                     },
                     ClientCommand::RemoveSubscriber(id) => {
                         RabbitClient::remove_worker(&cont, id).await;
+                        RabbitClient::remove_subscriber(&cont, id).await;
                     },
                     ClientCommand::CheckQueues => {
                         RabbitClient::recreate_topology(&cont).await;
