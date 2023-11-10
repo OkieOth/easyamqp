@@ -505,6 +505,11 @@ impl RabbitClient {
         client_cont.workers.len()
     }
 
+    pub async fn get_subscriber_count(&self) -> usize {
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.topology.get_subscriber_count().await
+    }
 }
 
 pub struct ClientImplCont {

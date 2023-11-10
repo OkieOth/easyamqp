@@ -7,7 +7,6 @@ use amqprs::{
     connection::Connection,
 };
 
-use crate::subscriber;
 
 
 #[derive(Debug, Clone, Default)]
@@ -191,8 +190,7 @@ impl QueueBindingDefinition {
 
 struct Subscriber {
     id: u32,
-    queue: Option<String>,
-    tx_inform_about_new_channel: Option<Sender<u32>>,
+    queue_and_sender: Option<(String, Sender<u32>)>,
 }
 
 
@@ -340,14 +338,25 @@ impl Topology {
     pub async fn register_subscriber(&mut self, id: u32) {
         let s = Subscriber {
             id,
-            queue: None,
-            tx_inform_about_new_channel: None,
+            queue_and_sender: None,
         };
         self.subscribers.push(s);
     }
 
     pub async fn remove_subscriber(&mut self, id_to_remove: u32) {
         self.subscribers.retain(|s| s.id != id_to_remove );
+    }
+
+    pub async fn get_subscriber_count(&self) -> usize {
+        self.subscribers.len()
+    }
+
+    pub async fn init_queue(&mut self, id_to_init: u32, queue_name: &str, tx_infrom_about_new_channel: &Sender<u32>) {
+        for s in self.subscribers.iter_mut() {
+            if s.id == id_to_init {
+                s.queue_and_sender = Some((queue_name.to_string(), tx_infrom_about_new_channel.clone()));
+            }
+        }
     }
 }
 
