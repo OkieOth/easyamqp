@@ -1,26 +1,27 @@
-use crate::{worker::Worker, rabbitclient::ClientCommand};
+use std::sync::Arc;
+use log::{debug, error, info, warn};
+
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep, timeout};
-use std::sync::Arc;
-
 use tokio::task;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
-use crate::callbacks::RabbitChannelCallback;
-use log::{debug, error, info, warn};
 use amqprs::consumer::AsyncConsumer;
 use amqprs::channel::{BasicAckArguments, BasicConsumeArguments, Channel};
 use amqprs::{Deliver, BasicProperties};
-
+use crate::topology::{QueueDefinition, QueueBindingDefinition};
+use crate::callbacks::RabbitChannelCallback;
+use crate::{worker::Worker, rabbitclient::ClientCommand};
 
 
 pub struct Subscriber {
     pub worker: Arc<Mutex<Worker>>,
     //sub_impl: Arc<Mutex<SubscriberImpl>>,
-    params: SubscribeParams,
+    pub params: SubscribeParams,
     pub tx_content: Arc<Mutex<Sender<SubscriptionContent>>>,
     pub rx_content: Receiver<SubscriptionContent>,
     pub tx_response: Sender<SubscriptionResponse>,
     pub rx_response: Arc<Mutex<Receiver<SubscriptionResponse>>>,
+    pub rx_inform_about_new_channel: Arc<Mutex<Receiver<u32>>>,
 }
 
 impl Drop for Subscriber {
@@ -30,7 +31,7 @@ impl Drop for Subscriber {
             let mut worker_guard = w.lock().await;
             let worker: &mut Worker = &mut *worker_guard;
             debug!("worker (id={}) will be deleted", worker.id);
-            if let Err(e) = worker.callback.tx_req.send(ClientCommand::RemoveWorker(worker.id)).await {
+            if let Err(e) = worker.callback.tx_req.send(ClientCommand::RemoveSubscriber(worker.id)).await {
                 error!("error while sending request to delete worker (id={}): {}",
                 worker.id, e.to_string());
             }
@@ -148,14 +149,15 @@ impl AsyncConsumer for SubscriberImpl {
         content: Vec<u8>,
     ) {
         debug!("consume is called");
+        let delivery_tag = deliver.delivery_tag();
         let sc = SubscriptionContent::new(
             deliver,
             basic_properties,
             content
             );
-        let delivery_tag = sc.delivery_tag;
         {
             let mut tx_content_guard = self.tx_content.lock().await;
+            info!("receive content for channel={}", channel.channel_id().to_string());
             let tx_content: &mut Sender<SubscriptionContent> = &mut *tx_content_guard;
 
             if let Err(e) = tx_content.send(sc).await {
@@ -164,10 +166,8 @@ impl AsyncConsumer for SubscriberImpl {
                 return;
             }
         }
-        if self.auto_ack {
-            let args = BasicAckArguments::new(delivery_tag, false);
-            channel.basic_ack(args).await.unwrap();
-        } else {
+        if ! self.auto_ack {
+            info!("wait for ack delivery_tag={} ...", delivery_tag);
             self.wait_for_subscription_response_and_ack(delivery_tag, &channel).await;
         }
     }
@@ -179,10 +179,12 @@ impl Subscriber {
             tx_req,
             id,
         };
+        let (tx_inform_about_new_channel, rx_inform_about_new_channel): (Sender<u32>, Receiver<u32>) = channel(1);
         let worker_cont = Worker {
             id,
             channel: None,
             callback,
+            tx_inform_about_new_channel: Some(tx_inform_about_new_channel),
         };
         let (tx_content, rx_content): (Sender<SubscriptionContent>, Receiver<SubscriptionContent>) = channel(1);
         let (tx_response, rx_response): (Sender<SubscriptionResponse>, Receiver<SubscriptionResponse>) = channel(1);
@@ -194,6 +196,7 @@ impl Subscriber {
             rx_content: rx_content,
             tx_response: tx_response,
             rx_response: Arc::new(Mutex::new(rx_response)),
+            rx_inform_about_new_channel: Arc::new(Mutex::new(rx_inform_about_new_channel)),
         };
         Ok(ret)
     }
@@ -209,6 +212,61 @@ impl Subscriber {
         }
     }
 
+    pub async fn start_new_channel_listener(&self, tx_req: Sender<ClientCommand>) {
+        let rx_inform_about_new_channel = self.rx_inform_about_new_channel.clone();
+        let w = self.worker.clone();
+
+        let tx_content = self.tx_content.clone();
+        let rx_response = self.rx_response.clone();
+        let auto_ack = self.params.auto_ack;
+        let queue_name = self.params.queue_name.clone();
+        let consumer_tag = self.params.consumer_tag.clone();
+        let exclusive = self.params.exclusive;
+
+        task::spawn(async move {
+            loop {
+                let rx: &mut Receiver<u32>;
+                let mut guard = rx_inform_about_new_channel.lock().await;
+                rx = &mut *guard;
+                let _ = rx.recv().await;
+                let mut worker_guard = w.lock().await;
+                let worker: &mut Worker = &mut *worker_guard;
+                match &worker.channel {
+                    Some(c) => {
+                        let sub_impl = SubscriberImpl {
+                            tx_content: tx_content.clone(),
+                            rx_response: rx_response.clone(),
+                            auto_ack: auto_ack,
+                            queue_name: queue_name.clone(),
+                            consumer_tag: consumer_tag.clone(),
+                            exclusive: exclusive,
+                        };
+                        let args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag)
+                        .manual_ack(!sub_impl.auto_ack)
+                        .exclusive(sub_impl.exclusive)
+                        .finish();
+
+                        match c.basic_consume(sub_impl, args).await {
+                            Ok(_) => {
+                                debug!("subscription re-established");
+                            },
+                            Err(err) => {
+                                let msg = format!("error while re-create subscription (worker: {}): {}", worker.id, err.to_string());
+                                error!("{}", &msg);
+                                let _ = tx_req.send(ClientCommand::Panic(msg)).await;
+                            },
+                        }
+                    },
+                    None => {
+                        let msg = format!("error while re-create subscription (worker: {}): channel is None", worker.id);
+                        error!("{}", &msg);
+                        let _ = tx_req.send(ClientCommand::Panic(msg)).await;
+                    },
+                }
+            }
+        });
+    }
+
     pub async fn subscribe(&mut self) -> Result<(&mut Receiver<SubscriptionContent>, &Sender<SubscriptionResponse>), SubscribeError> {
         let mut reconnect_millis = 500;
         let mut reconnect_attempts: u8 = 0;
@@ -218,6 +276,8 @@ impl Subscriber {
             let worker: &mut Worker = &mut *worker_guard;
             match &worker.channel {
                 Some(c) => {
+                    info!("subscribe for channel={}", c.channel_id().to_string());
+
                     let sub_impl = SubscriberImpl {
                         tx_content: self.tx_content.clone(),
                         rx_response: self.rx_response.clone(),
@@ -226,12 +286,15 @@ impl Subscriber {
                         consumer_tag: self.params.consumer_tag.clone(),
                         exclusive: self.params.exclusive,
                     };
-                    let mut args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag);
-                    args.auto_ack(sub_impl.auto_ack);
-                    args.exclusive(sub_impl.exclusive);
+
+                    let args = BasicConsumeArguments::new(&sub_impl.queue_name.clone(), &sub_impl.consumer_tag)
+                    .manual_ack(!sub_impl.auto_ack)
+                    .exclusive(sub_impl.exclusive)
+                    .finish();
 
                     match c.basic_consume(sub_impl, args).await {
                         Ok(_) => {
+                            self.start_new_channel_listener(worker.callback.tx_req.clone()).await;
                             return Ok((&mut self.rx_content, &self.tx_response));
                         },
                         Err(err) => {
@@ -295,6 +358,7 @@ impl SubscribeParamsBuilder {
         self.exclusive = Some(v);
         self
     }
+ 
     pub fn build(&self) -> SubscribeParams {
         let auto_ack = match self.auto_ack {
             Some(b) => b,

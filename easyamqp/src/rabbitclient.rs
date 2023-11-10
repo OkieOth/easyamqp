@@ -107,11 +107,7 @@ impl RabbitClient {
         let con_callback = RabbitConCallback {
             tx_cmd: tx_cmd.clone(),
         };
-        let top = Topology {
-            exchanges: Vec::new(),
-            queues: Vec::new(),
-            bindings: Vec::new(),
-        };
+        let top = Topology::new();
         let cont_impl = ClientImplCont {
             connection: None,
             tx_panic: None,
@@ -205,7 +201,7 @@ impl RabbitClient {
                 {
                     let mut worker_guard = publisher.worker.lock().await;
                     let worker: &mut Worker = &mut *worker_guard;
-                    match Self::set_channel_to_worker(&client_cont.connection,worker).await {
+                    match Self::set_channel_to_worker(&client_cont.connection,worker, false).await {
                         Ok(_) => {
                             client_cont.workers.push(publisher.worker.clone());
                         },
@@ -238,9 +234,13 @@ impl RabbitClient {
                 {
                     let mut worker_guard = subscriber.worker.lock().await;
                     let worker: &mut Worker = &mut *worker_guard;
-                    match Self::set_channel_to_worker(&client_cont.connection,worker).await {
+                    match Self::set_channel_to_worker(&client_cont.connection,worker, false).await {
                         Ok(_) => {
                             client_cont.workers.push(subscriber.worker.clone());
+                            client_cont.topology.register_subscriber(
+                                worker.id, 
+                                &subscriber.params.queue_name,
+                                worker.tx_inform_about_new_channel.as_ref().unwrap().clone()).await;
                         },
                         Err(msg) => {
                             return Err(msg);
@@ -272,7 +272,7 @@ impl RabbitClient {
     }
 
 
-    pub async fn set_channel_to_worker(connection: &Option<Connection>, worker: &mut Worker) -> Result<(), String> {
+    pub async fn set_channel_to_worker(connection: &Option<Connection>, worker: &mut Worker, inform_worker: bool) -> Result<(), String> {
         if connection.is_some() {
             let connection = connection.as_ref().unwrap();
             match connection.open_channel(None).await {
@@ -283,6 +283,10 @@ impl RabbitClient {
                         .unwrap();
                     debug!("set channel for worker (id={})", worker.id);
                     worker.channel = Some(channel);
+                    if inform_worker && worker.tx_inform_about_new_channel.is_some() {
+                        debug!("inform worker (id={}) about new channel", worker.id);
+                        let _ = worker.tx_inform_about_new_channel.as_ref().unwrap().send(worker.id).await;
+                    }
                     Ok(())
                 }
                 Err(e) => {
@@ -319,6 +323,20 @@ impl RabbitClient {
         client_cont.workers = new_workers;
     }
 
+    async fn remove_subscriber(cont: &Arc<Mutex<ClientImplCont>>, id_to_remove: u32) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.topology.remove_subscriber(id_to_remove).await;
+    }
+
+    async fn check_queue(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        // TODO maybe multiple tries???
+        if client_cont.connection.is_some() {
+            client_cont.topology.check_queue(id, &client_cont.connection.as_ref().unwrap()).await;
+        }
+    }
 
     async fn provide_channel(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
         let mut guard = cont.lock().await;
@@ -329,30 +347,7 @@ impl RabbitClient {
             let worker: &mut Worker = &mut *worker_guard;
             if worker.id == id {
                 found = true;
-                let _ = RabbitClient::set_channel_to_worker(&client_cont.connection, worker).await;
-                // if client_cont.connection.is_some() {
-                //     let connection = client_cont.connection.as_ref().unwrap();
-                //     match connection.open_channel(None).await {
-                //         Ok(channel) => {
-                //             channel
-                //                 .register_callback(worker.callback.clone())
-                //                 .await
-                //                 .unwrap();
-                //             debug!("set channel for worker (id={})", worker.id);
-                //             worker.channel = Some(channel);
-                //         }
-                //         Err(e) => {
-                //             error!(
-                //                 "error while creating channel for worker (id={}): {}",
-                //                 id,
-                //                 e.to_string()
-                //             );
-                //         }
-                //     }
-
-                // } else {
-                //     warn!("no connection, unable to provide channel for worker (id={})", id);
-                // }
+                let _ = RabbitClient::set_channel_to_worker(&client_cont.connection, worker, true).await;
             }
         }
         if ! found {
@@ -368,9 +363,9 @@ impl RabbitClient {
         let mut reconnect_attempts: u8 = 0;
         let mut success: bool;
         loop {
-            success = client_cont.topology.declare_all_exchanges().await.is_ok() &&
-            client_cont.topology.declare_all_queues().await.is_ok() &&
-            client_cont.topology.declare_all_bindings().await.is_ok();
+            success = client_cont.topology.declare_all_exchanges(client_cont.connection.as_ref().unwrap()).await.is_ok() &&
+            client_cont.topology.declare_all_queues(client_cont.connection.as_ref().unwrap()).await.is_ok() &&
+            client_cont.topology.declare_all_bindings(client_cont.connection.as_ref().unwrap()).await.is_ok();
             if ! success {
                 if reconnect_attempts > client_cont.max_reconnect_attempts {
                     let msg = format!("reached maximum attempts ({}) to reestablish topology, and stop trying",
@@ -437,6 +432,16 @@ impl RabbitClient {
                     ClientCommand::RemoveWorker(id) => {
                         RabbitClient::remove_worker(&cont, id).await;
                     },
+                    ClientCommand::RemoveSubscriber(id) => {
+                        RabbitClient::remove_worker(&cont, id).await;
+                        RabbitClient::remove_subscriber(&cont, id).await;
+                    },
+                    ClientCommand::CheckQueue(id) => {
+                        RabbitClient::check_queue(&cont, id).await;
+                    }
+                    ClientCommand::Panic(msg) => {
+                        RabbitClient::send_panic(msg, &cont).await;
+                    }
                 }
             }
             error!("I am leaving the management task 8-o");
@@ -511,6 +516,11 @@ impl RabbitClient {
         client_cont.workers.len()
     }
 
+    pub async fn get_subscriber_count(&self) -> usize {
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.topology.get_subscriber_count().await
+    }
 }
 
 pub struct ClientImplCont {
@@ -526,14 +536,20 @@ pub enum ClientCommand {
     Connect,
     GetChannel(u32),
     RemoveWorker(u32),
+    RemoveSubscriber(u32),
+    CheckQueue(u32),
+    Panic(String),
 }
 
 impl std::fmt::Display for ClientCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientCommand::Connect => write!(f, "Connect"),
-            ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
-            ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={})", id),
+            ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={id})"),
+            ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={id})"),
+            ClientCommand::RemoveSubscriber(id) => write!(f, "RemoveSubscriber(id={id})"),
+            ClientCommand::CheckQueue(id) => write!(f, "CheckQueue(id={id}"),
+            ClientCommand::Panic(msg) => write!(f, "Panic(msg={msg})"),
         }
     }
 }

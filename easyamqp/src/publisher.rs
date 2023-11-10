@@ -39,6 +39,7 @@ impl Publisher {
             id,
             channel: None,
             callback,
+            tx_inform_about_new_channel: None,
         };
         Ok(Publisher {
             params,
@@ -171,6 +172,7 @@ impl Publisher {
             let worker: &mut Worker = &mut *worker_guard;
             match &worker.channel {
                 Some(c) => {
+                    info!("publish to channel={}", c.channel_id().to_string());
                     return self.publish_with_params_impl(content, &params, &c).await;
                 },
                 None => {
