@@ -16,7 +16,7 @@ use crate::{worker::Worker, rabbitclient::ClientCommand};
 pub struct Subscriber {
     pub worker: Arc<Mutex<Worker>>,
     //sub_impl: Arc<Mutex<SubscriberImpl>>,
-    params: SubscribeParams,
+    pub params: SubscribeParams,
     pub tx_content: Arc<Mutex<Sender<SubscriptionContent>>>,
     pub rx_content: Receiver<SubscriptionContent>,
     pub tx_response: Sender<SubscriptionResponse>,

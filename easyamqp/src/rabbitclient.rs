@@ -237,7 +237,10 @@ impl RabbitClient {
                     match Self::set_channel_to_worker(&client_cont.connection,worker, false).await {
                         Ok(_) => {
                             client_cont.workers.push(subscriber.worker.clone());
-                            client_cont.topology.register_subscriber(worker.id).await;
+                            client_cont.topology.register_subscriber(
+                                worker.id, 
+                                &subscriber.params.queue_name,
+                                worker.tx_inform_about_new_channel.as_ref().unwrap().clone()).await;
                         },
                         Err(msg) => {
                             return Err(msg);
@@ -326,6 +329,14 @@ impl RabbitClient {
         client_cont.topology.remove_subscriber(id_to_remove).await;
     }
 
+    async fn check_queue(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
+        let mut guard = cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        // TODO maybe multiple tries???
+        if client_cont.connection.is_some() {
+            client_cont.topology.check_queue(id, &client_cont.connection.as_ref().unwrap()).await;
+        }
+    }
 
     async fn provide_channel(cont: &Arc<Mutex<ClientImplCont>>, id: u32) {
         let mut guard = cont.lock().await;
@@ -425,8 +436,8 @@ impl RabbitClient {
                         RabbitClient::remove_worker(&cont, id).await;
                         RabbitClient::remove_subscriber(&cont, id).await;
                     },
-                    ClientCommand::CheckQueues => {
-                        RabbitClient::recreate_topology(&cont).await;
+                    ClientCommand::CheckQueue(id) => {
+                        RabbitClient::check_queue(&cont, id).await;
                     }
                     ClientCommand::Panic(msg) => {
                         RabbitClient::send_panic(msg, &cont).await;
@@ -526,7 +537,7 @@ pub enum ClientCommand {
     GetChannel(u32),
     RemoveWorker(u32),
     RemoveSubscriber(u32),
-    CheckQueues,
+    CheckQueue(u32),
     Panic(String),
 }
 
@@ -534,11 +545,11 @@ impl std::fmt::Display for ClientCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientCommand::Connect => write!(f, "Connect"),
-            ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={})", id),
-            ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={})", id),
-            ClientCommand::RemoveSubscriber(id) => write!(f, "RemoveSubscriber(id={})", id),
-            ClientCommand::CheckQueues => write!(f, "CheckQueues"),
-            ClientCommand::Panic(msg) => write!(f, "Panic(msg={})", msg),
+            ClientCommand::GetChannel(id) => write!(f, "GetChannel(id={id})"),
+            ClientCommand::RemoveWorker(id) => write!(f, "RemoveWorker(id={id})"),
+            ClientCommand::RemoveSubscriber(id) => write!(f, "RemoveSubscriber(id={id})"),
+            ClientCommand::CheckQueue(id) => write!(f, "CheckQueue(id={id}"),
+            ClientCommand::Panic(msg) => write!(f, "Panic(msg={msg})"),
         }
     }
 }

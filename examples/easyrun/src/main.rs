@@ -103,8 +103,6 @@ fn main() {
         .user("guest")
         .password("guest")
         .build();
-    
-    
     //  {
     //     con_name: None,
     //     server: "127.0.0.1".to_string(),
