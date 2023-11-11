@@ -101,6 +101,15 @@ pub struct SubscriptionResponse {
     pub ack: bool,
 }
 
+impl SubscriptionResponse {
+    pub fn new(delivery_tag: u64, ack: bool) -> SubscriptionResponse {
+        SubscriptionResponse {
+            delivery_tag,
+            ack,
+        }
+    }
+}
+
 struct SubscriberImpl {
     pub tx_content: Arc<Mutex<Sender<SubscriptionContent>>>,
     pub rx_response: Arc<Mutex<Receiver<SubscriptionResponse>>>,

@@ -1,16 +1,16 @@
 use easyamqp::{RabbitClient, ExchangeDefinition,
     QueueDefinition, QueueBindingDefinition,
     Publisher, PublisherParams, 
-    Subscriber, SubscribeParams, SubscriptionContent};
+    Subscriber, SubscribeParams, SubscriptionContent, SubscriptionResponse};
 use tokio::time::{timeout, Duration};
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task;
 use log::error;
 
 
 #[test]
 #[ignore]
-fn test_simple_pub_sub() {
+fn test_ack_pub_sub() {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -19,8 +19,8 @@ fn test_simple_pub_sub() {
         let (mut client, _) = RabbitClient::get_default_client().await;
         client.connect().await.unwrap();
 
-        let exchange_name = "test_simple_pub_sub";
-        let queue_name = "test_simple_pub_sub.queue";
+        let exchange_name = "test_ack_pub_sub";
+        let queue_name = "test_ack_pub_sub.queue";
         let routing_key = "test";
 
         let exchange_def = ExchangeDefinition::builder(exchange_name).build();
@@ -61,7 +61,7 @@ fn test_simple_pub_sub() {
         });
 
         let sub_params = SubscribeParams::builder(queue_name, "test_simple_pub_sub")
-            .auto_ack(true)
+            .auto_ack(false)
             .exclusive(true)
             .build();
 
@@ -73,8 +73,10 @@ fn test_simple_pub_sub() {
             return;
         }
         let rx_content: &mut Receiver<SubscriptionContent>;
-        if let Ok(rxc ) = subscriber.subscribe_with_auto_ack().await {
+        let tx_response: &Sender<SubscriptionResponse>;
+        if let Ok((rxc, txr) ) = subscriber.subscribe().await {
             rx_content = rxc;
+            tx_response = txr;
         } else {
             assert!(false);
             return;
@@ -86,8 +88,13 @@ fn test_simple_pub_sub() {
             match timeout(Duration::from_secs(TIMEOUT_SECS), rx_content.recv()).await {
                 Ok(timeout_result) => {
                     match timeout_result {
-                        Some(_) => {
+                        Some(c) => {
                             received_count += 1;
+                            let resp = SubscriptionResponse { 
+                                delivery_tag: c.delivery_tag,
+                                ack: true 
+                            };
+                            let _ = tx_response.send(resp).await;
                         },
                         None => {
                             error!("didn't receive proper subscription response");
@@ -109,3 +116,4 @@ fn test_simple_pub_sub() {
         assert_eq!(10, received_count);
     });
 }
+
