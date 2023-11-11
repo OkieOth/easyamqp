@@ -3,7 +3,7 @@ use tokio::sync::mpsc::Sender;
 
 use amqprs::{
     channel::{ExchangeDeclareArguments, QueueBindArguments, QueueDeclareArguments},
-    connection::Connection,
+    connection::Connection, FieldTable,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -272,11 +272,15 @@ impl Topology {
         queue_def: &QueueDefinition,
         con: &Connection,
     ) -> Result<(), String> {
+        let mut a = FieldTable::new();
+        a.insert("x-single-active-consumer".try_into().unwrap(), amqprs::FieldValue::t(false));
         let channel = con.open_channel(None).await.unwrap();
         let queue_name = queue_def.name.as_str();
-        let mut args = QueueDeclareArguments::new(queue_name);
-        args.auto_delete(queue_def.auto_delete);
-        args.durable(queue_def.durable);
+        let args = QueueDeclareArguments::new(queue_name)
+        .auto_delete(queue_def.auto_delete)
+        .durable(queue_def.durable)
+//        .arguments(a)
+        .finish();
         if let Err(e) = channel.queue_declare(args).await {
             return Err(e.to_string());
         };

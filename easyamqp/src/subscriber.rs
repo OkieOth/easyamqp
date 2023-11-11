@@ -6,7 +6,7 @@ use tokio::time::{Duration, sleep, timeout};
 use tokio::task;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 use amqprs::consumer::AsyncConsumer;
-use amqprs::channel::{BasicAckArguments, BasicConsumeArguments, Channel};
+use amqprs::channel::{BasicAckArguments, BasicConsumeArguments, Channel, BasicQosArguments};
 use amqprs::{Deliver, BasicProperties};
 use crate::topology::{QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitChannelCallback;
@@ -99,6 +99,15 @@ impl SubscriptionContent {
 pub struct SubscriptionResponse {
     pub delivery_tag: u64,
     pub ack: bool,
+}
+
+impl SubscriptionResponse {
+    pub fn new(delivery_tag: u64, ack: bool) -> SubscriptionResponse {
+        SubscriptionResponse {
+            delivery_tag,
+            ack,
+        }
+    }
 }
 
 struct SubscriberImpl {
@@ -246,6 +255,9 @@ impl Subscriber {
                         .exclusive(sub_impl.exclusive)
                         .finish();
 
+                        let qos = BasicQosArguments::new(0,1,true);
+                        let _ = c.basic_qos(qos).await;
+
                         match c.basic_consume(sub_impl, args).await {
                             Ok(_) => {
                                 debug!("subscription re-established");
@@ -291,6 +303,9 @@ impl Subscriber {
                     .manual_ack(!sub_impl.auto_ack)
                     .exclusive(sub_impl.exclusive)
                     .finish();
+
+                    let qos = BasicQosArguments::new(0,1,true);
+                    let _ = c.basic_qos(qos).await;
 
                     match c.basic_consume(sub_impl, args).await {
                         Ok(_) => {

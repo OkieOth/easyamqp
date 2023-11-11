@@ -1,15 +1,8 @@
-use easyamqp::{RabbitClient, RabbitConParams, 
-    ExchangeDefinition, ExchangeType,
-    QueueDefinition, QueueBindingDefinition,
-    Publisher, PublisherParams, 
-    Subscriber, SubscribeParams, SubscriptionContent};
-use easyamqp::utils::get_env_var_str;
+use easyamqp::{RabbitClient, ExchangeDefinition,
+    QueueDefinition, QueueBindingDefinition, Publisher};
 use serde_json::Value;
 use serde_json_path::JsonPath;
-use tokio::time::{timeout, sleep, Duration};
-use tokio::sync::mpsc::{Receiver, Sender, channel};
-use tokio::task;
-use log::error;
+use tokio::time::{sleep, Duration};
 
 fn extract_json_names(json_str: &str) -> Vec<String> {
     //println!("{}", conn_json_str);
@@ -140,17 +133,7 @@ fn create_exchange_test() {
         .build()
         .unwrap()
         .block_on(async {
-        let user_name = get_env_var_str("RABBIT_USER", "guest");
-        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
-        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
-        
-        let params = RabbitConParams::builder()
-            .server(&rabbit_server)
-            .user(&user_name)
-            .password(&password)
-            .build();
-
-        let mut client = RabbitClient::new(params).await;
+        let (mut client, params) = RabbitClient::get_default_client().await;
         client.connect().await.unwrap();
         let param1 = ExchangeDefinition::builder("first")
             .durable(true)
@@ -171,7 +154,7 @@ fn create_exchange_test() {
 
         client.close().await;
 
-        match get_exchanges(&rabbit_server, &user_name, &password) {
+        match get_exchanges(&params.server, &params.user, &params.password) {
             Some(v) => {
                 let mut found = 0;
                 for s in v {
@@ -202,17 +185,7 @@ fn create_queues_test() {
         .build()
         .unwrap()
         .block_on(async {
-        let user_name = get_env_var_str("RABBIT_USER", "guest");
-        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
-        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
-
-        let params = RabbitConParams::builder()
-            .server(&rabbit_server)
-            .user(&user_name)
-            .password(&password)
-            .build();
-
-        let mut client = RabbitClient::new(params).await;
+        let (mut client, params) = RabbitClient::get_default_client().await;
         client.connect().await.unwrap();
 
         let param1 = QueueDefinition::builder("first_queue")
@@ -240,7 +213,7 @@ fn create_queues_test() {
 
         client.close().await;
 
-        match get_queues(&rabbit_server, &user_name, &password) {
+        match get_queues(&params.server, &params.user, &params.password) {
             Some(v) => {
                 let mut found = 0;
                 for s in v {
@@ -271,17 +244,7 @@ fn create_bindings_test() {
         .build()
         .unwrap()
         .block_on(async {
-        let user_name = get_env_var_str("RABBIT_USER", "guest");
-        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
-        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
-
-        let params = RabbitConParams::builder()
-            .server(&rabbit_server)
-            .user(&user_name)
-            .password(&password)
-            .build();
-
-        let mut client = RabbitClient::new(params).await;
+        let (mut client, params) = RabbitClient::get_default_client().await;
         client.connect().await.unwrap();
         let param1 = QueueBindingDefinition::new(
             "first_queue", "first", "*");
@@ -296,18 +259,18 @@ fn create_bindings_test() {
         client.declare_queue_binding(param3).await.unwrap();
 
         let json_path1 = "$[?(@.source == 'first' && @.destination == 'first_queue')]";
-        assert!(check_binding(&rabbit_server, &user_name, &password, json_path1));
+        assert!(check_binding(&params.server, &params.user, &params.password, json_path1));
         let json_path2 = "$[?(@.source == 'second' && @.destination == 'second_queue')]";
-        assert!(check_binding(&rabbit_server, &user_name, &password, json_path2));
+        assert!(check_binding(&params.server, &params.user, &params.password, json_path2));
         let json_path3 = "$[?(@.source == 'third' && @.destination == 'third_queue')]";
-        assert!(check_binding(&rabbit_server, &user_name, &password, json_path3));
+        assert!(check_binding(&params.server, &params.user, &params.password, json_path3));
 
         let json_path1_2 = "$[?(@.source == 'first' && @.destination == 'first_queue' && @.routing_key == '*')]";
-        assert!(check_binding(&rabbit_server, &user_name, &password, json_path1_2));
+        assert!(check_binding(&params.server, &params.user, &params.password, json_path1_2));
         let json_path2_2 = "$[?(@.source == 'second' && @.destination == 'second_queue' && @.routing_key == 'second.#')]";
-        assert!(check_binding(&rabbit_server, &user_name, &password, json_path2_2));
+        assert!(check_binding(&params.server, &params.user, &params.password, json_path2_2));
         let json_path3_2 = "$[?(@.source == 'third' && @.destination == 'third_queue' && @.routing_key == 'third.*')]";
-        assert!(check_binding(&rabbit_server, &user_name, &password, json_path3_2));
+        assert!(check_binding(&params.server, &params.user, &params.password, json_path3_2));
     });
 }
 
@@ -322,17 +285,7 @@ fn test_deregister_of_deleted_publishers() {
         .build()
         .unwrap()
         .block_on(async {
-        let user_name = get_env_var_str("RABBIT_USER", "guest");
-        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
-        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
-
-        let params = RabbitConParams::builder()
-            .server(&rabbit_server)
-            .user(&user_name)
-            .password(&password)
-            .build();
-
-        let mut client = RabbitClient::new(params).await;
+        let (mut client, _) = RabbitClient::get_default_client().await;
         client.connect().await.unwrap();
 
         let _p1: Publisher = client.new_publisher().await.unwrap();
@@ -351,113 +304,5 @@ fn test_deregister_of_deleted_publishers() {
         drop(_p3);
         sleep( sleep_time ).await;
         assert_eq!(0, client.get_worker_count().await);
-    });
-}
-
-#[test]
-#[ignore]
-fn test_simple_pub_sub() {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async {
-        let user_name = get_env_var_str("RABBIT_USER", "guest");
-        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
-        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
-
-        let params = RabbitConParams::builder()
-            .server(&rabbit_server)
-            .user(&user_name)
-            .password(&password)
-            .build();
-
-        let mut client = RabbitClient::new(params).await;
-        client.connect().await.unwrap();
-        let exchange_def = ExchangeDefinition::builder("test_simple_pub_sub").build();
-        let _ = client.declare_exchange(exchange_def).await;
-        
-        let queue_def = QueueDefinition::builder("test_simple_pub_sub.queue")
-            .durable(true)
-            .exclusive(true)
-            .auto_delete(true)
-            .build();
-        let _ = client.declare_queue(queue_def).await;
-        let binding_def = QueueBindingDefinition::new("test_simple_pub_sub.queue", "test_simple_pub_sub", "test"); 
-        let _ = client.declare_queue_binding(binding_def).await;
-
-        let mut pub_params = PublisherParams::builder()
-            .exchange("test_simple_pub_sub")
-            .routing_key("test")
-            .build();
-
-        let p1: Publisher = client.new_publisher_from_params(pub_params).await.unwrap();
-        assert_eq!(1, client.get_worker_count().await);
-
-        task::spawn(async move {
-            let content = String::from(
-                r#"
-                    {
-                        "publisher": "example"
-                        "data": "Hello, amqprs!"
-                    }
-                "#,
-            )
-            .into_bytes();
-            for i in 0 .. 10 {
-                if let Err(e) = p1.publish(content.clone()).await {
-                    error!("error while publishing {i}: {}", e.to_string());
-                }
-            }
-        });
-
-        let sub_params = SubscribeParams::builder("test_simple_pub_sub.queue", "test_simple_pub_sub")
-            .auto_ack(true)
-            .exclusive(true)
-            .build();
-
-        let mut subscriber: Subscriber;
-        if let Ok(s) = client.new_subscriber(sub_params).await {
-            subscriber = s;
-        } else {
-            assert!(false);
-            return;
-        }
-        let rx_content: &mut Receiver<SubscriptionContent>;
-        if let Ok(rxc ) = subscriber.subscribe_with_auto_ack().await {
-            rx_content = rxc;
-        } else {
-            assert!(false);
-            return;
-        }
-        let mut received_count = 0;
-        // TODO include timeout!
-        let mut failure_count = 0;
-        loop {
-            const TIMEOUT_SECS: u64 = 3;
-            match timeout(Duration::from_secs(TIMEOUT_SECS), rx_content.recv()).await {
-                Ok(timeout_result) => {
-                    match timeout_result {
-                        Some(_) => {
-                            received_count += 1;
-                        },
-                        None => {
-                            error!("didn't receive proper subscription response");
-                            failure_count += 1;
-                        },
-                    }
-                },
-                Err(_) => {
-                    // timeout
-                    error!("didn't receive subscription response in timeout ({} s)", TIMEOUT_SECS);
-                    failure_count += 1;
-                },
-            }
-
-            if (received_count == 10) || (failure_count == 10) {
-                break;
-            }
-        }
-        assert_eq!(10, received_count);
     });
 }

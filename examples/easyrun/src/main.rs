@@ -120,7 +120,7 @@ fn main() {
             let (tx_panic, mut rx_panic): (Sender<String>, Receiver<String>) = mpsc::channel(1);
 
             info!("started 1");
-            let mut client = RabbitClient::new(params).await;
+            let (mut client, _) = RabbitClient::get_default_client().await;
             info!("started 2");
             client.connect().await.unwrap();
             client.set_panic_sender(tx_panic).await;
