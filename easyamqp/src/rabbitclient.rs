@@ -15,12 +15,12 @@ use amqprs::connection::{Connection, OpenConnectionArguments};
 
 use crate::publisher::Publisher;
 use crate::publisher::PublisherParams;
-use crate::subscriber;
 use crate::subscriber::{Subscriber, SubscribeParams};
 use crate::topology::Topology;
 use crate::topology::{ExchangeDefinition, QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitConCallback;
 use crate::worker::Worker;
+use crate::utils::get_env_var_str;
 
 /// Container for the connection parameters for the broker connection
 #[derive(Debug, Clone, Default)]
@@ -102,7 +102,7 @@ pub struct RabbitClient {
 }
 
 impl RabbitClient {
-    pub async fn new(con_params: RabbitConParams) -> Self {
+    pub async fn new(con_params: &RabbitConParams) -> Self {
         let (tx_cmd, rx_cmd): (Sender<ClientCommand>, Receiver<ClientCommand>) = mpsc::channel(100);
         let con_callback = RabbitConCallback {
             tx_cmd: tx_cmd.clone(),
@@ -118,7 +118,7 @@ impl RabbitClient {
         };
         let c = Arc::new(Mutex::new(cont_impl));
         let ret = RabbitClient {
-            con_params,
+            con_params: con_params.clone(),
             tx_cmd,
             con_callback,
             cont: c.clone(),
@@ -126,6 +126,22 @@ impl RabbitClient {
         ret.start_cmd_receiver_task(rx_cmd);
         return ret;
     }
+
+    /// This function is mostly used to reduce the code for tests
+    pub async fn get_default_client() -> (RabbitClient, RabbitConParams) {
+        let user_name = get_env_var_str("RABBIT_USER", "guest");
+        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+    
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .build();
+    
+        (RabbitClient::new(&params).await, params)
+    }
+    
 
     pub async fn connect(&mut self) -> Result<(), String> {
         return RabbitClient::do_connect(&self.con_params, self.con_callback.clone(), &self.cont, 4).await;
@@ -590,13 +606,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn dummy() {
-        let params = rabbitclient::RabbitConParams::builder()
-            .server("127.0.0.1")
-            .user("guest")
-            .password("guest")
-            .build();
-
-        let client = rabbitclient::RabbitClient::new(params).await;
+        let (client, _) = rabbitclient::RabbitClient::get_default_client().await;
 
         for _ in 0 .. 1000 {
             for id in 0 .. 10 {
