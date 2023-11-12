@@ -1,3 +1,5 @@
+mod test_helper;
+
 use easyamqp::{RabbitClient, RabbitConParams, 
     ExchangeDefinition, ExchangeType,
     QueueDefinition, QueueBindingDefinition,
@@ -11,6 +13,7 @@ use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::sync::oneshot;
 use tokio::task;
 use log::error;
+
 
 
 #[test]
@@ -120,6 +123,7 @@ fn test_multiple_subscribers() {
         let sleep_obj = sleep(Duration::from_secs(5));
         tokio::pin!(sleep_obj);
 
+
         'outer: loop {
             const TIMEOUT_SECS: u64 = 3;
             tokio::select! {
@@ -155,6 +159,15 @@ fn test_multiple_subscribers() {
                 }
             }
         }
+        match test_helper::list_from_rabbitmqadmin("connections").await {
+            Ok(s) => {
+                println!("{}", s);
+            },
+            Err(msg) => {
+                assert!(false);
+            },
+        }
+
         assert!(received_count_1>0);
         assert!(received_count_2>0);
         assert_eq!(received_count_1 + received_count_2, 100);
