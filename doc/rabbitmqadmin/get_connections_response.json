@@ -1,0 +1,62 @@
+[
+    {
+        "auth_mechanism": "PLAIN",
+        "channel_max": 2047,
+        "channels": 2,
+        "client_properties": {
+            "capabilities": {
+                "consumer_cancel_notify": true
+            },
+            "connection_name": "AMQPRS000@127.0.0.1:5672/",
+            "platform": "Rust",
+            "product": "AMQPRS",
+            "version": "0.1"
+        },
+        "connected_at": 1699908548736,
+        "frame_max": 131072,
+        "garbage_collection": {
+            "fullsweep_after": 65535,
+            "max_heap_size": 0,
+            "min_bin_vheap_size": 46422,
+            "min_heap_size": 233,
+            "minor_gcs": 61
+        },
+        "host": "172.22.0.2",
+        "name": "172.22.0.1:37616 -> 172.22.0.2:5672",
+        "node": "rabbit@ce55e10df496",
+        "peer_cert_issuer": null,
+        "peer_cert_subject": null,
+        "peer_cert_validity": null,
+        "peer_host": "172.22.0.1",
+        "peer_port": 37616,
+        "port": 5672,
+        "protocol": "AMQP 0-9-1",
+        "recv_cnt": 229,
+        "recv_oct": 25597,
+        "recv_oct_details": {
+            "rate": 0.0
+        },
+        "reductions": 62456,
+        "reductions_details": {
+            "rate": 0.0
+        },
+        "send_cnt": 134,
+        "send_oct": 25956,
+        "send_oct_details": {
+            "rate": 0.0
+        },
+        "send_pend": 0,
+        "ssl": false,
+        "ssl_cipher": null,
+        "ssl_hash": null,
+        "ssl_key_exchange": null,
+        "ssl_protocol": null,
+        "state": "running",
+        "timeout": 60,
+        "type": "network",
+        "user": "guest",
+        "user_provided_name": "AMQPRS000@127.0.0.1:5672/",
+        "user_who_performed_action": "guest",
+        "vhost": "/"
+    }
+]
