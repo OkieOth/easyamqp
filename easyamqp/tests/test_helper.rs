@@ -1,13 +1,16 @@
 use base64::Engine;
 use reqwest::header;
+use easyamqp::utils::get_env_var_str;
 
 pub async fn list_from_rabbitmqadmin(obj_type: &str) -> Result<String, String> {
     // Replace 'your_username' and 'your_password' with your RabbitMQ username and password
-    let username = "guest";
-    let password = "guest";
+    let user_name = get_env_var_str("RABBIT_USER", "guest");
+    let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+    let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+
 
     // Build the URL
-    let url = format!("http://localhost:15672/api/{}", obj_type);
+    let url = format!("http://{rabbit_server}:15672/api/{obj_type}");
 
     // Create reqwest client with Basic Auth credentials
     let client = reqwest::Client::builder()
@@ -19,7 +22,7 @@ pub async fn list_from_rabbitmqadmin(obj_type: &str) -> Result<String, String> {
     let request = client.get(&url)
         .header(header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!(
             "Basic {}",
-            base64::engine::general_purpose::STANDARD.encode(&format!("{}:{}", username, password))
+            base64::engine::general_purpose::STANDARD.encode(&format!("{}:{}", user_name, password))
         )).map_err(|e| e.to_string())?);
 
     // Send the request asynchronously

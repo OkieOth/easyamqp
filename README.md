@@ -34,3 +34,11 @@ cargo test -- --ignored --show-output
 # run all integration tests in a closed docker compose env
 ./bin/test_easy_amqp.sh test
 ```
+
+# Requirements
+
+## Test Requirements
+```bash
+# Ubuntu
+sudo apt install libssl-dev pkg-config
+```
