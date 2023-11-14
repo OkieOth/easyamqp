@@ -24,6 +24,8 @@ fn test_con_loss() {
         let conn_name_pub = "con_loss_test_publisher";
         let (mut client_pub, _) = RabbitClient::get_default_client_with_name(&conn_name_pub).await;
         client_pub.connect().await.unwrap();
+        
+        let pub_con_name = test_helper::get_connection_name(&conn_name_pub).await.unwrap();
 
 
         let exchange_name = "test_multiple_subscribers";
@@ -72,6 +74,9 @@ fn test_con_loss() {
         let conn_name_sub = "con_loss_test_subscriber";
         let (mut client_sub, _) = RabbitClient::get_default_client_with_name(&conn_name_sub).await;
         client_sub.connect().await.unwrap();
+
+        let sub_con_name = test_helper::get_connection_name(&conn_name_sub).await.unwrap();
+
         let sub_params_1 = SubscribeParams::builder(queue_name, "subscriber_1")
             .auto_ack(false)
             .exclusive(false)

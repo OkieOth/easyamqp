@@ -2,7 +2,45 @@ use base64::Engine;
 use reqwest::header;
 use easyamqp::utils::get_env_var_str;
 use serde_json_path::JsonPath;
+use tokio::time::{sleep, Duration};
 
+
+
+pub async fn get_connection_name(conn_name: &str) -> Result<String, String> {
+    // because sometime the admin api is to slow
+    let mut try_count = 0;
+    let path_string = format!("$[?(@.client_properties.connection_name == '{conn_name}')].name");
+    loop {
+        match list_from_rabbitmqadmin("connections").await {
+            Ok(s) => {
+                let j = serde_json::from_str(&s).unwrap();
+                //let path_string = format!("$[?(@.client_properties.connection_name == '{conn_name}')].name')]");
+                match JsonPath::parse(&path_string) {
+                    Ok(path) => {
+                        match path.query(&j).first() {
+                            Some(v) => {
+                                let s = v.as_str().unwrap();
+                                return Ok(s.to_string());
+                            },
+                            None => try_count += 1,
+                        }
+                    },
+                    Err(e) => {
+                        return Err(e.to_string());
+                    },
+                }
+            },
+            Err(msg) => {
+                return Err(msg);
+            },
+        }
+        if try_count > 20 {
+            let s = format!("reached maximun tries to retrieve con name, conn_name={}", conn_name);
+            return Err(s);
+        }
+        sleep(Duration::from_millis(500)).await;
+    }
+}
 
 
 pub async fn test_connection_count(conn_name: &str, expected: usize) {
@@ -16,6 +54,7 @@ pub async fn test_connection_count(conn_name: &str, expected: usize) {
         },
     }
 }
+
 
 pub async fn get_connection_count(connection_resp_json: &String, conn_name: &str) -> Result<usize, String> {
     let j = serde_json::from_str(connection_resp_json).unwrap();
