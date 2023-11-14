@@ -1,6 +1,33 @@
 use base64::Engine;
 use reqwest::header;
 use easyamqp::utils::get_env_var_str;
+use serde_json_path::JsonPath;
+
+
+
+pub async fn test_connection_count(conn_name: &str, expected: usize) {
+    match list_from_rabbitmqadmin("connections").await {
+        Ok(s) => {
+            let con_count = get_connection_count(&s, &conn_name).await.unwrap();
+            assert_eq!(1, con_count, "wrong connection count for: {}", conn_name);
+        },
+        Err(msg) => {
+            assert!(false, "{}", msg);
+        },
+    }
+}
+
+pub async fn get_connection_count(connection_resp_json: &String, conn_name: &str) -> Result<usize, String> {
+    let j = serde_json::from_str(connection_resp_json).unwrap();
+    let path_string = format!("$[?(@.client_properties.connection_name == '{conn_name}')]");
+    match JsonPath::parse(&path_string) {
+        Ok(path) => {
+            let r = path.query(&j);
+            Ok(r.len())
+        },
+        Err(e) => Err(e.to_string()),
+    }
+}
 
 pub async fn list_from_rabbitmqadmin(obj_type: &str) -> Result<String, String> {
     // Replace 'your_username' and 'your_password' with your RabbitMQ username and password

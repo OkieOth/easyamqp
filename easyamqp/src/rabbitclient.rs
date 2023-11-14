@@ -142,6 +142,20 @@ impl RabbitClient {
         (RabbitClient::new(&params).await, params)
     }
     
+    pub async fn get_default_client_with_name(con_name: &str) -> (RabbitClient, RabbitConParams) {
+        let user_name = get_env_var_str("RABBIT_USER", "guest");
+        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+    
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .con_name(con_name)
+            .build();
+    
+        (RabbitClient::new(&params).await, params)
+    }
 
     pub async fn connect(&mut self) -> Result<(), String> {
         return RabbitClient::do_connect(&self.con_params, self.con_callback.clone(), &self.cont, 4).await;
