@@ -14,6 +14,13 @@ rabbitmqadmin --username guest --password guest list exchanges -f pretty_json
 
 ```
 
+## Curl
+
+```bash
+curl -i -u guest:guest -H "content-type:application/json" \
+    -XDELETE http://localhost:15672/api/connections/172.22.0.1%3A45110%20-%3E%20172.22.0.2%3A5672
+```
+
 # JSON Parsing
 https://jsonpath.com/
 https://www.digitalocean.com/community/tutorials/python-jsonpath-examples

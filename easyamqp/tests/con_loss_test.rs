@@ -24,9 +24,6 @@ fn test_con_loss() {
         let conn_name_pub = "con_loss_test_publisher";
         let (mut client_pub, _) = RabbitClient::get_default_client_with_name(&conn_name_pub).await;
         client_pub.connect().await.unwrap();
-        
-        let pub_con_name = test_helper::get_connection_name(&conn_name_pub).await.unwrap();
-
 
         let exchange_name = "test_multiple_subscribers";
         let queue_name = "test_multiple_subscribers.queue";
@@ -53,6 +50,13 @@ fn test_con_loss() {
         assert_eq!(1, client_pub.get_worker_count().await);
 
         task::spawn(async move {
+            for i in 0 .. 3 {
+                test_helper::close_connection(&conn_name_pub).await;
+                sleep(Duration::from_secs(1)).await;
+            }
+        });
+
+        task::spawn(async move {
             let content = String::from(
                 r#"
                     {
@@ -62,11 +66,19 @@ fn test_con_loss() {
                 "#,
             )
             .into_bytes();
-            for i in 0 .. 120 {
+            let mut sent = 0;
+            let mut err = 0;
+            loop {
                 if let Err(e) = p1.publish(content.clone()).await {
-                    error!("error while publishing {i}: {}", e.to_string());
+                    error!("error while publishing {sent}: {}", e.to_string());
+                    err += 1;
+                } else {
+                    sent += 1;
                 }
-                //sleep(Duration::from_secs(1)).await;
+                if err==120 || sent==120 {
+                    break;
+                }
+                sleep(Duration::from_secs(1)).await;
             }
         });
 
@@ -130,7 +142,7 @@ fn test_con_loss() {
             }
         }
 
-        let sleep_obj = sleep(Duration::from_secs(5));
+        let sleep_obj = sleep(Duration::from_secs(200));
         tokio::pin!(sleep_obj);
 
 

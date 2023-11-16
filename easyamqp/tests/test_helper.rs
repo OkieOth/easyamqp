@@ -5,6 +5,7 @@ use serde_json_path::JsonPath;
 use tokio::time::{sleep, Duration};
 
 
+use urlencoding::encode;
 
 pub async fn get_connection_name(conn_name: &str) -> Result<String, String> {
     // because sometime the admin api is to slow
@@ -53,6 +54,41 @@ pub async fn test_connection_count(conn_name: &str, expected: usize) {
             assert!(false, "{}", msg);
         },
     }
+}
+
+pub async fn close_connection(user_con_name: &str) -> Result<(), String> {
+    let user_name = get_env_var_str("RABBIT_USER", "guest");
+    let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+    let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+
+
+    let con_name = get_connection_name(&user_con_name).await.unwrap();
+
+
+    // Build the URL
+    let encoded_str = encode(con_name.as_str());
+    let url = format!("http://{rabbit_server}:15672/api/connections/{encoded_str}");
+
+    // Create reqwest client with Basic Auth credentials
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true) // Use this only for testing, remove in production
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Create a request with Basic Auth
+    let request = client.delete(&url)
+        .header(header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(&format!("{}:{}", user_name, password))
+        )).map_err(|e| e.to_string())?);
+
+    // Send the request asynchronously
+    if let Err(e) = request.send().await {
+        print!("error while del con: {}", e.to_string());
+    }
+
+    Ok(())
+
 }
 
 

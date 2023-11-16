@@ -155,6 +155,8 @@ fn test_multiple_subscribers() {
         }
 
         test_helper::test_connection_count(&conn_name, 1).await;
+        let cn = test_helper::get_connection_name(&conn_name).await;
+        assert!(cn.is_ok() && cn.unwrap().len()>0);
 
         assert!(received_count_1>0);
         assert!(received_count_2>0);
