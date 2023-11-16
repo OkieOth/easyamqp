@@ -47,7 +47,7 @@ pub async fn test_connection_count(conn_name: &str, expected: usize) {
     match list_from_rabbitmqadmin("connections").await {
         Ok(s) => {
             let con_count = get_connection_count(&s, &conn_name).await.unwrap();
-            assert_eq!(1, con_count, "wrong connection count for: {}", conn_name);
+            assert_eq!(expected, con_count, "wrong connection count for: {}", conn_name);
         },
         Err(msg) => {
             assert!(false, "{}", msg);
@@ -97,7 +97,6 @@ pub async fn list_from_rabbitmqadmin(obj_type: &str) -> Result<String, String> {
     // Check if the request was successful (status code 2xx)
     if response.status().is_success() {
         // Return the response body
-        let l = response.content_length();
         match response.text().await {
             Ok(body) => Ok(body),
             Err(e) => Err(e.to_string()),
