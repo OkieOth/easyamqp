@@ -25,6 +25,8 @@ fn test_con_loss() {
         let (mut client_pub, _) = RabbitClient::get_default_client_with_name(&conn_name_pub).await;
         client_pub.connect().await.unwrap();
 
+        let con_str_start = test_helper::get_connection_name(&conn_name_pub).await;
+
         let exchange_name = "test_multiple_subscribers";
         let queue_name = "test_multiple_subscribers.queue";
         let routing_key = "test";
@@ -50,7 +52,7 @@ fn test_con_loss() {
         assert_eq!(1, client_pub.get_worker_count().await);
 
         task::spawn(async move {
-            for i in 0 .. 3 {
+            for i in 0 .. 10 {
                 test_helper::close_connection(&conn_name_pub).await;
                 sleep(Duration::from_secs(1)).await;
             }
@@ -68,6 +70,7 @@ fn test_con_loss() {
             .into_bytes();
             let mut sent = 0;
             let mut err = 0;
+            let max_publ_count = 120;
             loop {
                 if let Err(e) = p1.publish(content.clone()).await {
                     error!("error while publishing {sent}: {}", e.to_string());
@@ -75,10 +78,10 @@ fn test_con_loss() {
                 } else {
                     sent += 1;
                 }
-                if err==120 || sent==120 {
+                if max_publ_count>120 || max_publ_count>120 {
                     break;
                 }
-                sleep(Duration::from_secs(1)).await;
+                sleep(Duration::from_millis(300)).await;
             }
         });
 
@@ -174,11 +177,16 @@ fn test_con_loss() {
                     break 'outer;
                 }
             }
+            if received_count_1 + received_count_2 >= 120 {
+                break 'outer;
+            }
         }
 
+        let con_str_end = test_helper::get_connection_name(&conn_name_pub).await;
         test_helper::test_connection_count(&conn_name_pub, 1).await;
         test_helper::test_connection_count(&conn_name_sub, 1).await;
 
+        assert!(con_str_start != con_str_end);
         assert!(received_count_1>0);
         assert!(received_count_2>0);
         assert_eq!(received_count_1 + received_count_2, 120);

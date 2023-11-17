@@ -218,7 +218,6 @@ impl RabbitClient {
         }
     }
 
-
     pub async fn new_publisher_from_params(&self, params: PublisherParams) -> Result<Publisher, String> {
         debug!("new_publisher_from_params is wating for lock ...");
         let mut guard = self.cont.lock().await;
