@@ -48,7 +48,7 @@ pub async fn test_connection_count(conn_name: &str, expected: usize) {
     match list_from_rabbitmqadmin("connections").await {
         Ok(s) => {
             let con_count = get_connection_count(&s, &conn_name).await.unwrap();
-            assert_eq!(expected, con_count, "wrong connection count for: {}", conn_name);
+            assert_eq!(expected, con_count, "wrong connection count for: {}: {}", conn_name, s);
         },
         Err(msg) => {
             assert!(false, "{}", msg);
