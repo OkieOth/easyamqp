@@ -176,6 +176,7 @@ fn test_con_loss_publisher() {
             }
         }
 
+        assert!(client_pub.get_reconnect_count().await > 1);
         let con_str_end = test_helper::get_connection_name(&conn_name_pub).await;
         assert!(con_str_start != con_str_end);
         assert!(received_count_1>0);
@@ -356,6 +357,7 @@ fn test_con_loss_subscriber() {
 
         let con_str_end = test_helper::get_connection_name(&conn_name_sub).await;
 
+        assert!(client_sub.get_reconnect_count().await > 1);
         assert!(con_str_start != con_str_end);
         assert!(received_count_1>0);
         assert!(received_count_2>0);

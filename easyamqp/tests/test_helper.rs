@@ -91,6 +91,37 @@ pub async fn close_connection(user_con_name: &str) -> Result<(), String> {
 
 }
 
+pub async fn del_queue(queue_name: &str) -> Result<(), String> {
+    let user_name = get_env_var_str("RABBIT_USER", "guest");
+    let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+    let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+
+    // Build the URL
+    let encoded_str = encode(queue_name);
+    let encoded_vhost = encode("/");
+    let url = format!("http://{rabbit_server}:15672/api/queues/{encoded_vhost}/{encoded_str}");
+
+    // Create reqwest client with Basic Auth credentials
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true) // Use this only for testing, remove in production
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Create a request with Basic Auth
+    let request = client.delete(&url)
+        .header(header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(&format!("{}:{}", user_name, password))
+        )).map_err(|e| e.to_string())?);
+
+    // Send the request asynchronously
+    if let Err(e) = request.send().await {
+        Err(e.to_string())
+    } else {
+        Ok(())
+    }
+}
+
 
 pub async fn get_connection_count(connection_resp_json: &String, conn_name: &str) -> Result<usize, String> {
     let j = serde_json::from_str(connection_resp_json).unwrap();

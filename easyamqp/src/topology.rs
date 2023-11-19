@@ -390,10 +390,13 @@ impl Topology {
         if let Some(q) = self.queues.iter().find(|queue| queue.name == *queue_name) {
             match self.declare_queue_base(q, con).await {
                 Ok(_) => Ok(true),
-                Err(e) => Err(e),
+                Err(e) => {
+                    error!("error while declare queue '{queue_name}': {}", e.to_string());
+                    return Err(e);
+                },
             }
         } else {
-            debug!("recreate_queue: couldn't find queue in topology queues: {queue_name}");
+            warn!("recreate_queue: couldn't find queue in topology queues: {queue_name}");
             Ok(false)
         }
     }

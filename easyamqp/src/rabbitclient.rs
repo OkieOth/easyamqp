@@ -115,6 +115,7 @@ impl RabbitClient {
             max_reconnect_attempts: 3,
             workers: Vec::new(),
             max_worker_id: 0,
+            reconnect_count: 0,
         };
         let c = Arc::new(Mutex::new(cont_impl));
         let ret = RabbitClient {
@@ -450,6 +451,11 @@ impl RabbitClient {
                         if let Err(s) = RabbitClient::do_connect(&con_params,con_callback.clone(),&cont,4).await {
                             RabbitClient::send_panic(s, &cont).await;
                         } else {
+                            {
+                                let mut guard = cont.lock().await;
+                                let client_cont: &mut ClientImplCont = &mut *guard;
+                                client_cont.reconnect_count += 1;
+                            }
                             RabbitClient::recreate_topology(&cont).await;
                             RabbitClient::recreate_channel(&cont).await;
                         }
@@ -545,6 +551,12 @@ impl RabbitClient {
         client_cont.workers.len()
     }
 
+    pub async fn get_reconnect_count(&self) -> usize {
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.reconnect_count
+    }
+
     pub async fn get_subscriber_count(&self) -> usize {
         let mut guard = self.cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
@@ -559,6 +571,7 @@ pub struct ClientImplCont {
     max_reconnect_attempts: u8,
     workers: Vec<Arc<Mutex<Worker>>>,
     max_worker_id: u32,
+    reconnect_count: usize,
 }
 
 pub enum ClientCommand {
