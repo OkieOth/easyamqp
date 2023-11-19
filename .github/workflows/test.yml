@@ -5,7 +5,7 @@ name: easyamqp tests
 
 on:
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   test_on_pr:
