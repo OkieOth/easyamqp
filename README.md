@@ -1,4 +1,4 @@
-[![ci](https://https://github.com/OkieOth/easyamqp/blob/main/.github/workflows/test.yml/badge.svg)](https://https://github.com/OkieOth/easyamqp/blob/main/.github/workflows/test.yml)
+[![ci](https://https://github.com/OkieOth/easyamqp/actions/workflows/test.yml/badge.svg)](https://https://github.com/OkieOth/easyamqp/actions/workflows/test.yml)
 
 # TL;DR;
 
