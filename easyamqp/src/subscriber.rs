@@ -130,7 +130,9 @@ impl SubscriberImpl {
                     Some(resp) => {
                         if resp.ack {
                             let args = BasicAckArguments::new(delivery_tag, false);
-                            channel.basic_ack(args).await.unwrap();
+                            if let Err(e) = channel.basic_ack(args).await {
+                                error!("error while ack: {}", e.to_string());
+                            }
                         }
                     },
                     None => {

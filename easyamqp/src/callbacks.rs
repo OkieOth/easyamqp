@@ -54,7 +54,7 @@ impl ChannelCallback for RabbitChannelCallback {
         let _ = self.tx_req.send(ClientCommand::GetChannel(self.id)).await;
         Ok(())
     }
-    async fn cancel(&mut self, _channel: &Channel, _cancel: Cancel) -> Result<()> {
+    async fn cancel(&mut self, channel: &Channel, _cancel: Cancel) -> Result<()> {
         warn!("queue was closed");
         let _ = self.tx_req.send(ClientCommand::CheckQueue(self.id)).await;
         Ok(())

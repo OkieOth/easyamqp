@@ -115,6 +115,7 @@ impl RabbitClient {
             max_reconnect_attempts: 3,
             workers: Vec::new(),
             max_worker_id: 0,
+            reconnect_count: 0,
         };
         let c = Arc::new(Mutex::new(cont_impl));
         let ret = RabbitClient {
@@ -142,6 +143,20 @@ impl RabbitClient {
         (RabbitClient::new(&params).await, params)
     }
     
+    pub async fn get_default_client_with_name(con_name: &str) -> (RabbitClient, RabbitConParams) {
+        let user_name = get_env_var_str("RABBIT_USER", "guest");
+        let password = get_env_var_str("RABBIT_PASSWORD", "guest");
+        let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
+    
+        let params = RabbitConParams::builder()
+            .server(&rabbit_server)
+            .user(&user_name)
+            .password(&password)
+            .con_name(con_name)
+            .build();
+    
+        (RabbitClient::new(&params).await, params)
+    }
 
     pub async fn connect(&mut self) -> Result<(), String> {
         return RabbitClient::do_connect(&self.con_params, self.con_callback.clone(), &self.cont, 4).await;
@@ -203,7 +218,6 @@ impl RabbitClient {
             Err("Connection isn't ready".to_string())
         }
     }
-
 
     pub async fn new_publisher_from_params(&self, params: PublisherParams) -> Result<Publisher, String> {
         debug!("new_publisher_from_params is wating for lock ...");
@@ -437,6 +451,11 @@ impl RabbitClient {
                         if let Err(s) = RabbitClient::do_connect(&con_params,con_callback.clone(),&cont,4).await {
                             RabbitClient::send_panic(s, &cont).await;
                         } else {
+                            {
+                                let mut guard = cont.lock().await;
+                                let client_cont: &mut ClientImplCont = &mut *guard;
+                                client_cont.reconnect_count += 1;
+                            }
                             RabbitClient::recreate_topology(&cont).await;
                             RabbitClient::recreate_channel(&cont).await;
                         }
@@ -532,6 +551,12 @@ impl RabbitClient {
         client_cont.workers.len()
     }
 
+    pub async fn get_reconnect_count(&self) -> usize {
+        let mut guard = self.cont.lock().await;
+        let client_cont: &mut ClientImplCont = &mut *guard;
+        client_cont.reconnect_count
+    }
+
     pub async fn get_subscriber_count(&self) -> usize {
         let mut guard = self.cont.lock().await;
         let client_cont: &mut ClientImplCont = &mut *guard;
@@ -546,6 +571,7 @@ pub struct ClientImplCont {
     max_reconnect_attempts: u8,
     workers: Vec<Arc<Mutex<Worker>>>,
     max_worker_id: u32,
+    reconnect_count: usize,
 }
 
 pub enum ClientCommand {
