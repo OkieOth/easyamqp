@@ -1,3 +1,5 @@
+![ci](https://https://github.com/OkieOth/easyamqp/blob/main/.github/workflows/test.yml/badge.svg)
+
 # TL;DR;
 
 Attempt to write a simple rabbitmq driver wrapper, that supports connection
@@ -16,7 +18,7 @@ auto healing and multithreading.
 
 # Project content
 * easyamqp - library crate
-* examples/con_test - example binary that plays with the lib for connection tests
+* examples/easyrun - example binary that plays with the lib - no read use currently
 
 # Usage
 
