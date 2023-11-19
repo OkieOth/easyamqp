@@ -17,8 +17,4 @@ jobs:
       - uses: isbang/compose-action@v1.5.1
         with:
           compose-file: "./test_easyamqp.yaml"
-          up-flags: |
-            "--build"
-            "--abort-on-container-exit"
-            "--exit-code-from"
-            test_runner
+          up-flags: "--build --abort-on-container-exit --exit-code-from test_runner"
