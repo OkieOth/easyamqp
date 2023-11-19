@@ -1,0 +1,24 @@
+# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: easyamqp tests
+
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test_on_pr:
+    runs-on: ubuntu-latest
+    name: test
+    steps:
+      # need checkout before using compose-action
+      - uses: actions/checkout@v3
+      - uses: isbang/compose-action@v1.5.1
+        with:
+          compose-file: "./test_easyamqp.yaml"
+          up-flags: |
+            "--build"
+            "--abort-on-container-exit"
+            "--exit-code-from"
+            test_runner
