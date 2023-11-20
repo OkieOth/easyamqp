@@ -2,8 +2,7 @@
 
 # TL;DR;
 
-Attempt to write a simple rabbitmq driver wrapper, that supports connection
-auto healing and multithreading.
+Attempt to write a rabbitmq driver wrapper, that supports connection auto healing and multithreading.
 
 **This repo is still work in progress.**
 
