@@ -18,9 +18,11 @@ auto healing and multithreading.
 
 # Project content
 * easyamqp - library crate
-* examples/easyrun - example binary that plays with the lib - no read use currently
+* examples/easyps - example binary that plays with the lib - used to publish and subscribe
 
-# Usage
+# easyamqp
+
+## Usage
 
 ```bash
 # start the dev env
@@ -45,10 +47,16 @@ docker run --privileged -u podman:podman \
 
 ```
 
-# Requirements
-
-## Test Requirements
+## Requirements
+### Test Requirements
 ```bash
 # Ubuntu
 sudo apt install libssl-dev pkg-config
+```
+
+# easyps
+
+```bash
+# execute with cargo run
+cargo run --bin easyps -- --help
 ```
