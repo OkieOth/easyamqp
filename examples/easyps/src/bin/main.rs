@@ -46,6 +46,25 @@ fn main() {
         .build()
         .unwrap()
         .block_on(async {
+            match args.command {
+                Command::Publish(args) => {
+                    match start_server(args) {
+                        Err(s) => {
+                            error!("Error while run server: {}", s);
+                        },
+                        _ => {}
+                    }
+                },
+                Command::Pubscribe(args) => {
+                    match start_client(args) {
+                        Err(s) => {
+                            error!("Error while run client: {}", s);
+                        },
+                        _ => {}
+                    }
+                },
+            }
+        
         });
 }
 
