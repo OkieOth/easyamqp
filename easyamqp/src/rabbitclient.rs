@@ -285,7 +285,7 @@ impl RabbitClient {
         }
     }
 
-
+    
     /// Sends a panic message to the client host
     async fn send_panic(panic_msg: String, cont: &Arc<Mutex<ClientImplCont>>) {
         let mut guard = cont.lock().await;
