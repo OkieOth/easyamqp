@@ -1,6 +1,7 @@
 use tokio::sync::mpsc::Receiver;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
 
 use crate::rabbitclient::RabbitClient;
 use crate::subscriber::{Subscriber, SubscribeParams, SubscriptionContent};
@@ -10,6 +11,7 @@ pub struct BasicRpcClient<'a> {
     rabbitclient: &'a RabbitClient,
     exchange: String,
     routing_key: String,
+    timeout_secs: u64,
 }
 
 impl<'a> BasicRpcClient<'a> {
@@ -18,6 +20,7 @@ impl<'a> BasicRpcClient<'a> {
             rabbitclient,
             exchange: exchange.to_string(),
             routing_key: routing_key.to_string(),
+            timeout_secs: 30,
         };
         Ok(r)
     }
@@ -65,14 +68,25 @@ impl<'a> BasicRpcClient<'a> {
             return Err(e.to_string());
         }
 
-        match rx.recv().await {
-            Some(c) => {
-                return Ok(c);
+        let sleep_obj = sleep(Duration::from_secs(self.timeout_secs));
+        tokio::pin!(sleep_obj);
+
+        tokio::select! {
+            res = rx.recv() => {
+                match res {
+                    Some(c) => {
+                        return Ok(c);
+                    },
+                    None => {
+                        return Err("received no content".to_string());
+                    }
+                }
             },
-            None => {
-                return Err("received no content".to_string());
+            _ = &mut sleep_obj => {
+                return Err("timeout reached".to_string());
             }
         }
+
     }
 }
 
