@@ -1,7 +1,8 @@
 use crate::{worker::Worker, rabbitclient::ClientCommand};
 use tokio::sync::Mutex;
-use std::sync::Arc;
+use std::{sync::Arc, collections::HashMap};
 use amqprs::{channel::{Channel, BasicPublishArguments}, BasicProperties};
+use amqprs::{FieldTable, FieldName, FieldValue, ShortStr, LongStr};
 use log::{debug, error, info, warn};
 use tokio::time::{sleep, Duration};
 use tokio::task;
@@ -45,38 +46,70 @@ impl Publisher {
             params,
             worker: Arc::new(Mutex::new(worker_cont)),
         })
-    } 
+    }
+
+    pub async fn new_from_worker(worker: &Arc<Mutex<Worker>>, params: PublisherParams) -> Result<Publisher, String> {
+        let w = worker.clone();
+        Ok(Publisher {
+            params,
+            worker: w,
+        })
+    }
 
     pub async fn publish(&self, content: Vec<u8>) -> Result<(), PublishError> {
         let mut params = PublishingParams::default();
         if self.params.exchange.is_some() {
-            params.exchange = self.params.exchange.clone()
+            params.exchange = self.params.exchange.clone();
         }
         if self.params.routing_key.is_some() {
-            params.routing_key = self.params.routing_key.clone()
+            params.routing_key = self.params.routing_key.clone();
         }
         if self.params.content_type.is_some() {
-            params.content_type = self.params.content_type.clone()
+            params.content_type = self.params.content_type.clone();
         }
         if self.params.content_encoding.is_some() {
-            params.content_encoding = self.params.content_encoding.clone()
+            params.content_encoding = self.params.content_encoding.clone();
         }
         if self.params.priority.is_some() {
-            params.priority = self.params.priority.clone()
+            params.priority = self.params.priority.clone();
         }
         if self.params.mandatory.is_some() {
-            params.mandatory = self.params.mandatory.clone()
+            params.mandatory = self.params.mandatory.clone();
         }
         if self.params.expiration.is_some() {
-            params.expiration = self.params.expiration.clone()
+            params.expiration = self.params.expiration.clone();
         }
         if self.params.message_type.is_some() {
-            params.message_type = self.params.message_type.clone()
+            params.message_type = self.params.message_type.clone();
         }
         if self.params.user_id.is_some() {
-            params.user_id = self.params.user_id.clone()
+            params.user_id = self.params.user_id.clone();
         }
+        if self.params.reply_to.is_some() {
+            params.reply_to = self.params.reply_to.clone();
+        }
+        params.headers = self.params.headers.clone();
         self.publish_with_params(content, &params).await
+    }
+
+    async fn create_headers(&self, params: &PublishingParams) -> Option<FieldTable> {
+        if let Some(h) = &params.headers {
+            let mut f = FieldTable::new();
+            for k in h.keys() {
+                let v = h.get(k);
+                if let Some(c) = v {
+                    let ks = ShortStr::try_from(k.as_str()).unwrap();
+                    let key = FieldName::from(ks);
+                    let hk = LongStr::try_from(c.as_str()).unwrap();
+                    let header_cont = FieldValue::S(hk);
+                    f.insert(key, header_cont);
+                }
+            }
+            Some(f)
+        } else {
+            None
+        }
+
     }
 
     async fn create_basic_props(&self, params: &PublishingParams) -> Result<BasicProperties, String> {
@@ -98,14 +131,23 @@ impl Publisher {
             },
             None => None,
         };
+        let headers = self.create_headers(params).await;
+        let mut reply_to: Option<String> = None;
+        if self.params.reply_to.is_some() {
+            reply_to = self.params.reply_to.clone();
+        } else {
+            if params.reply_to.is_some() {
+                reply_to = params.reply_to.clone();
+            }
+        }
         Ok(BasicProperties::new(
             params.content_type.clone(),
             params.content_encoding.clone(),
-            None,
+            headers,
             None,
             prio,
             params.correlation_id.clone(),
-            None,
+            reply_to,
             params.expiration.clone(),
             params.message_id.clone(),
             params.timestamp.clone(),
@@ -117,12 +159,29 @@ impl Publisher {
     }
 
     async fn create_publish_args(&self, params: &PublishingParams) -> Result<BasicPublishArguments, String> {
-        if params.exchange.is_none() || params.routing_key.is_none() {
-            return Err("exchange and routing keys are needed parameters".to_string());
-        }
         let mut pa = BasicPublishArguments::default();
-        pa.exchange = params.exchange.as_ref().unwrap().to_string();
-        pa.routing_key = params.routing_key.as_ref().unwrap().to_string();
+        let exchange: &String;
+        if let Some(e) = self.params.exchange.as_ref() {
+            exchange = e;
+        } else {
+            if let Some(e) = params.exchange.as_ref() {
+                exchange = e;
+            } else {
+                return Err("exchange is a needed parameter".to_string());
+            }
+        };
+        let routing_key: &String;
+        if let Some(r) = self.params.routing_key.as_ref() {
+            routing_key = r;
+        } else {
+            if let Some(r) = params.routing_key.as_ref() {
+                routing_key = r;
+            } else {
+                return Err("routing_key is a needed parameter".to_string());
+            }
+        };
+        pa.exchange = exchange.clone();
+        pa.routing_key = routing_key.clone();
         if params.mandatory.is_some() {
             pa.mandatory = params.mandatory.unwrap();
         }
@@ -206,6 +265,8 @@ pub struct PublisherParams {
     pub mandatory: Option<bool>,
     pub user_id: Option<String>,
     pub app_id: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub reply_to: Option<String>,
 }
 
 impl PublisherParams {
@@ -226,6 +287,8 @@ pub struct PublisherParamsBuilder {
     mandatory: Option<bool>,
     user_id: Option<String>,
     app_id: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    reply_to: Option<String>,
 }
 
 impl PublisherParamsBuilder {
@@ -273,6 +336,14 @@ impl PublisherParamsBuilder {
         self.app_id = Some(v.to_string());
         self
     }
+    pub fn reply_to(mut self, v: &str) -> PublisherParamsBuilder {
+        self.reply_to = Some(v.to_string());
+        self
+    }
+    pub fn headers(mut self,v: &HashMap<String, String>) -> PublisherParamsBuilder {
+        self.headers = Some(v.clone());
+        self
+    }
 
     pub fn build(self) -> PublisherParams {
         PublisherParams {
@@ -286,6 +357,8 @@ impl PublisherParamsBuilder {
             mandatory: self.mandatory,
             user_id: self.user_id,
             app_id: self.app_id,
+            headers: self.headers,
+            reply_to: self.reply_to,
         }
     }
 }
@@ -331,6 +404,8 @@ pub struct PublishingParams {
     pub message_type: Option<String>,
     pub user_id: Option<String>,
     pub app_id: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub reply_to: Option<String>,
 }
 
 impl PublishingParams {
@@ -354,6 +429,8 @@ pub struct PublishingParamsBuilder {
     message_type: Option<String>,
     user_id: Option<String>,
     app_id: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    reply_to: Option<String>,
 }
 
 impl PublishingParamsBuilder {
@@ -413,6 +490,14 @@ impl PublishingParamsBuilder {
         self.app_id = Some(v.to_string());
         self
     }
+    pub fn reply_to(mut self,v: &str) -> PublishingParamsBuilder {
+        self.reply_to = Some(v.to_string());
+        self
+    }
+    pub fn headers(mut self,v: &HashMap<String, String>) -> PublishingParamsBuilder {
+        self.headers = Some(v.clone());
+        self
+    }
     pub fn build(self) -> PublishingParams {
         PublishingParams {
             exchange: self.exchange,
@@ -428,6 +513,8 @@ impl PublishingParamsBuilder {
             message_type: self.message_type,
             user_id: self.user_id,
             app_id: self.app_id,
+            headers: self.headers,
+            reply_to: self.reply_to
         }
     }
 }
