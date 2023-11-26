@@ -395,7 +395,7 @@ impl RabbitClient {
         let client_cont: &mut ClientImplCont = &mut *guard;
         // TODO maybe multiple tries???
         if client_cont.connection.is_some() {
-            client_cont.topology.check_queue(id, &client_cont.connection.as_ref().unwrap()).await;
+            let _ = client_cont.topology.check_queue(id, &client_cont.connection.as_ref().unwrap()).await;
         }
     }
 
@@ -458,7 +458,7 @@ impl RabbitClient {
                 worker.channel = None;
             }
             if let Err(e) = worker.callback.tx_req.send(ClientCommand::GetChannel(worker.id)).await {
-                error!("error while requesting channel for worker (id={})", worker.id);
+                error!("error while requesting channel for worker (id={}): {}", worker.id, e.to_string());
             }
         }
     }

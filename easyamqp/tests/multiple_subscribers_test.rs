@@ -1,9 +1,7 @@
 mod test_helper;
 
-use easyamqp::{RabbitClient, RabbitConParams, 
-    ExchangeDefinition, ExchangeType,
-    QueueDefinition, QueueBindingDefinition,
-    Publisher, PublisherParams, 
+use easyamqp::{RabbitClient, ExchangeDefinition, QueueDefinition, 
+    QueueBindingDefinition, Publisher, PublisherParams, 
     Subscriber, SubscribeParams, SubscriptionContent, SubscriptionResponse};
 use tokio::time::{sleep, Duration};
 use tokio::sync::mpsc::{Receiver, Sender};

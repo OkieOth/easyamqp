@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep, timeout};
@@ -9,7 +9,6 @@ use tokio::sync::mpsc::{Receiver, Sender, channel};
 use amqprs::consumer::AsyncConsumer;
 use amqprs::channel::{BasicAckArguments, BasicConsumeArguments, Channel, BasicQosArguments};
 use amqprs::{Deliver, BasicProperties};
-use crate::topology::{QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitChannelCallback;
 use crate::{worker::Worker, rabbitclient::ClientCommand};
 

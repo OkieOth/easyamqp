@@ -3,11 +3,11 @@ use tokio::sync::Mutex;
 use std::{sync::Arc, collections::HashMap};
 use amqprs::{channel::{Channel, BasicPublishArguments}, BasicProperties};
 use amqprs::{FieldTable, FieldName, FieldValue, ShortStr, LongStr};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use tokio::time::{sleep, Duration};
 use tokio::task;
 
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Sender;
 use crate::callbacks::RabbitChannelCallback;
 
 pub struct Publisher {
@@ -540,7 +540,7 @@ impl std::fmt::Display for PublishError {
 
 #[cfg(test)]
 mod tests {
-    use crate::publisher::{PublisherParams, PublishingParams, MessagePriority};
+    use crate::publisher::{PublisherParams, MessagePriority};
 
     #[test]
     fn publisher_builder_test() {
