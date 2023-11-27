@@ -6,6 +6,7 @@ mod topology;
 mod worker;
 pub mod utils;
 pub mod rpc_client;
+pub mod rpc_server;
 
 pub use rabbitclient::{RabbitConParams, RabbitConParamsBuilder, RabbitClient};
 pub use topology::{ExchangeDefinition, ExchangeType, ExchangeDefinitionBuilder,

@@ -7,6 +7,8 @@ use crate::rabbitclient::RabbitClient;
 use crate::subscriber::{Subscriber, SubscribeParams, SubscriptionContent};
 use crate::publisher::{Publisher, PublisherParams, PublishingParams};
 use crate::worker::Worker;
+
+/// Simple AMQP based RPC client that works with topc exchanges
 pub struct BasicRpcClient<'a> {
     rabbitclient: &'a RabbitClient,
     exchange: String,
