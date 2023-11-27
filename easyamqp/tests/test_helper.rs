@@ -51,7 +51,7 @@ pub async fn test_connection_count(conn_name: &str, expected: usize) {
             assert_eq!(expected, con_count, "wrong connection count for: {}: {}", conn_name, s);
         },
         Err(msg) => {
-            assert!(false, "{}", msg);
+            panic!("{}", msg);
         },
     }
 }

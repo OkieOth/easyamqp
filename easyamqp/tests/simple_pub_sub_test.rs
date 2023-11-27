@@ -69,15 +69,13 @@ fn test_simple_pub_sub() {
         if let Ok(s) = client.new_subscriber(sub_params).await {
             subscriber = s;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
         let rx_content: &mut Receiver<SubscriptionContent>;
         if let Ok(rxc ) = subscriber.subscribe_with_auto_ack().await {
             rx_content = rxc;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
         let mut received_count = 0;
         let mut failure_count = 0;

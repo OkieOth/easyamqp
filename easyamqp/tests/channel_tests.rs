@@ -170,7 +170,7 @@ fn create_exchange_test() {
                }
                assert_eq!(found, 3);
             },
-            None => assert!(false),
+            None => panic!(),
 
         }
 
@@ -229,7 +229,7 @@ fn create_queues_test() {
                }
                assert_eq!(found, 3);
             },
-            None => assert!(false),
+            None => panic!(),
         }
     });
 }

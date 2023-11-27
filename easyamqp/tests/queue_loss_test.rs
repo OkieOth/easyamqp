@@ -87,8 +87,7 @@ fn test_queue_loss_test() {
         if let Ok(s) = client_sub.new_subscriber(sub_params_1).await {
             subscriber_1 = s;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
         let sub_params_2 = SubscribeParams::builder(queue_name, "subscriber_2")
             .auto_ack(false)
@@ -98,8 +97,7 @@ fn test_queue_loss_test() {
         if let Ok(s) = client_sub.new_subscriber(sub_params_2).await {
             subscriber_2 = s;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
 
         let mut received_count_1 = 0;
@@ -113,9 +111,7 @@ fn test_queue_loss_test() {
                 tx_response_1 = txr;
             },
             Err(e) => {
-                print!("{}", e);
-                assert!(false, "Error while subscribe 1: {}", e);
-                return;
+                panic!("Error while subscribe 1: {}", e);
             }
         }
         let rx_content_2: &mut Receiver<SubscriptionContent>;
@@ -126,9 +122,7 @@ fn test_queue_loss_test() {
                 tx_response_2 = txr;
             },
             Err(e) => {
-                print!("{}", e);
-                assert!(false, "Error while subscribe 2: {}", e);
-                return;
+                panic!("Error while subscribe 2: {}", e);
             }
         }
 
@@ -167,8 +161,7 @@ fn test_queue_loss_test() {
                     }
                 },
                 _ = &mut sleep_obj => {
-                    assert!(false, "timeout reached:, received_count_1={}, received_count_2={}", received_count_1, received_count_2);
-                    break 'outer;
+                    panic!("timeout reached:, received_count_1={}, received_count_2={}", received_count_1, received_count_2);
                 }
             }
             // if received_count_1 + received_count_2 > 500 && ! con_changed {

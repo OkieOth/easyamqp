@@ -69,8 +69,7 @@ fn test_ack_pub_sub() {
         if let Ok(s) = client.new_subscriber(sub_params).await {
             subscriber = s;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
         let rx_content: &mut Receiver<SubscriptionContent>;
         let tx_response: &Sender<SubscriptionResponse>;
@@ -78,8 +77,7 @@ fn test_ack_pub_sub() {
             rx_content = rxc;
             tx_response = txr;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
         let mut received_count = 0;
         let mut failure_count = 0;
