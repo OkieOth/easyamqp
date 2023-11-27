@@ -21,10 +21,10 @@ fn test_con_loss_publisher() {
         .block_on(async {
         
         let conn_name_pub = "con_loss_test_publisher1";
-        let (mut client_pub, _) = RabbitClient::get_default_client_with_name(&conn_name_pub).await;
+        let (mut client_pub, _) = RabbitClient::get_default_client_with_name(conn_name_pub).await;
         client_pub.connect().await.unwrap();
 
-        let con_str_start = test_helper::get_connection_name(&conn_name_pub).await;
+        let con_str_start = test_helper::get_connection_name(conn_name_pub).await;
 
         let exchange_name = "test_multiple_subscribers1";
         let queue_name = "test_multiple_subscribers.queue1";
@@ -79,13 +79,13 @@ fn test_con_loss_publisher() {
 
         task::spawn(async move {
             for _ in 0 .. 10 {
-                let _ = test_helper::close_connection(&conn_name_pub).await;
+                let _ = test_helper::close_connection(conn_name_pub).await;
                 sleep(Duration::from_millis(500)).await;
             }
         });
 
         let conn_name_sub = "con_loss_test_subscriber1";
-        let (mut client_sub, _) = RabbitClient::get_default_client_with_name(&conn_name_sub).await;
+        let (mut client_sub, _) = RabbitClient::get_default_client_with_name(conn_name_sub).await;
         client_sub.connect().await.unwrap();
 
         let sub_params_1 = SubscribeParams::builder(queue_name, "subscriber_1")
@@ -122,8 +122,8 @@ fn test_con_loss_publisher() {
                 tx_response_1 = txr;
             },
             Err(e) => {
-                print!("{}", e.to_string());
-                assert!(false, "Error while subscribe 1: {}", e.to_string());
+                print!("{}", e);
+                assert!(false, "Error while subscribe 1: {}", e);
                 return;
             }
         }
@@ -135,8 +135,8 @@ fn test_con_loss_publisher() {
                 tx_response_2 = txr;
             },
             Err(e) => {
-                print!("{}", e.to_string());
-                assert!(false, "Error while subscribe 2: {}", e.to_string());
+                print!("{}", e);
+                assert!(false, "Error while subscribe 2: {}", e);
                 return;
             }
         }
@@ -177,7 +177,7 @@ fn test_con_loss_publisher() {
         }
 
         assert!(client_pub.get_reconnect_count().await > 1);
-        let con_str_end = test_helper::get_connection_name(&conn_name_pub).await;
+        let con_str_end = test_helper::get_connection_name(conn_name_pub).await;
         assert!(con_str_start != con_str_end);
         assert!(received_count_1>0);
         assert!(received_count_2>0);
@@ -195,7 +195,7 @@ fn test_con_loss_subscriber() {
         .block_on(async {
         
         let conn_name_pub = "con_loss_test_publisher2";
-        let (mut client_pub, _) = RabbitClient::get_default_client_with_name(&conn_name_pub).await;
+        let (mut client_pub, _) = RabbitClient::get_default_client_with_name(conn_name_pub).await;
         client_pub.connect().await.unwrap();
 
         let exchange_name = "test_multiple_subscribers2";
@@ -250,7 +250,7 @@ fn test_con_loss_subscriber() {
 
 
         let conn_name_sub = "con_loss_test_subscriber2";
-        let (mut client_sub, _) = RabbitClient::get_default_client_with_name(&conn_name_sub).await;
+        let (mut client_sub, _) = RabbitClient::get_default_client_with_name(conn_name_sub).await;
         client_sub.connect().await.unwrap();
 
         let sub_params_1 = SubscribeParams::builder(queue_name, "subscriber_1")
@@ -287,8 +287,8 @@ fn test_con_loss_subscriber() {
                 tx_response_1 = txr;
             },
             Err(e) => {
-                print!("{}", e.to_string());
-                assert!(false, "Error while subscribe 1: {}", e.to_string());
+                print!("{}", e);
+                assert!(false, "Error while subscribe 1: {}", e);
                 return;
             }
         }
@@ -300,13 +300,13 @@ fn test_con_loss_subscriber() {
                 tx_response_2 = txr;
             },
             Err(e) => {
-                print!("{}", e.to_string());
-                assert!(false, "Error while subscribe 2: {}", e.to_string());
+                print!("{}", e);
+                assert!(false, "Error while subscribe 2: {}", e);
                 return;
             }
         }
 
-        let con_str_start = test_helper::get_connection_name(&conn_name_sub).await;
+        let con_str_start = test_helper::get_connection_name(conn_name_sub).await;
 
         let sleep_obj = sleep(Duration::from_secs(120));
         tokio::pin!(sleep_obj);
@@ -315,7 +315,7 @@ fn test_con_loss_subscriber() {
         task::spawn(async move {
             sleep(Duration::from_millis(1000)).await;
             for _ in 0 .. 10 {
-                let _ = test_helper::close_connection(&conn_name_sub).await;
+                let _ = test_helper::close_connection(conn_name_sub).await;
                 sleep(Duration::from_millis(500)).await;
             }
         });
@@ -346,7 +346,7 @@ fn test_con_loss_subscriber() {
                 }
             }
             if received_count_1 + received_count_2 > 500 && ! con_changed {
-                let con_str_tmp = test_helper::get_connection_name(&conn_name_sub).await;
+                let con_str_tmp = test_helper::get_connection_name(conn_name_sub).await;
                 sleep(Duration::from_secs(1)).await;
                 con_changed = con_str_start != con_str_tmp;
             }
@@ -355,7 +355,7 @@ fn test_con_loss_subscriber() {
             }
         }
 
-        let con_str_end = test_helper::get_connection_name(&conn_name_sub).await;
+        let con_str_end = test_helper::get_connection_name(conn_name_sub).await;
 
         assert!(client_sub.get_reconnect_count().await > 1);
         assert!(con_str_start != con_str_end);
