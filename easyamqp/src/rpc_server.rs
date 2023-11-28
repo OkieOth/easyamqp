@@ -97,7 +97,7 @@ impl RpcServerParamsBuilder {
 
 
 #[derive(Debug, Clone, Default)]
-pub struct RpcResponse {
+pub struct RpcResponseParams {
     pub content_type: Option<String>,
     pub content_encoding: Option<String>,
     pub correlation_id: Option<String>,
@@ -108,14 +108,14 @@ pub struct RpcResponse {
     pub headers: Option<HashMap<String, String>>,
 }
 
-impl RpcResponse {
-    pub fn builder() -> RpcResponseBuilder {
-        RpcResponseBuilder::default()
+impl RpcResponseParams {
+    pub fn builder() -> RpcResponseParamsBuilder {
+        RpcResponseParamsBuilder::default()
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct RpcResponseBuilder {
+pub struct RpcResponseParamsBuilder {
     pub content_type: Option<String>,
     pub content_encoding: Option<String>,
     pub correlation_id: Option<String>,
@@ -126,41 +126,41 @@ pub struct RpcResponseBuilder {
     pub headers: Option<HashMap<String, String>>,
 }
 
-impl RpcResponseBuilder {
-    pub fn content_type(mut self, v: &str) -> RpcResponseBuilder {
+impl RpcResponseParamsBuilder {
+    pub fn content_type(mut self, v: &str) -> RpcResponseParamsBuilder {
         self.content_type = Some(v.to_string());
         self
     }
-    pub fn content_encoding(mut self, v: &str) -> RpcResponseBuilder {
+    pub fn content_encoding(mut self, v: &str) -> RpcResponseParamsBuilder {
         self.content_encoding = Some(v.to_string());
         self
     }
-    pub fn correlation_id(mut self, v: &str) -> RpcResponseBuilder {
+    pub fn correlation_id(mut self, v: &str) -> RpcResponseParamsBuilder {
         self.correlation_id = Some(v.to_string());
         self
     }
-    pub fn message_id(mut self, v: &str) -> RpcResponseBuilder {
+    pub fn message_id(mut self, v: &str) -> RpcResponseParamsBuilder {
         self.message_id = Some(v.to_string());
         self
     }
-    pub fn timestamp(mut self, v: u64) -> RpcResponseBuilder {
+    pub fn timestamp(mut self, v: u64) -> RpcResponseParamsBuilder {
         self.timestamp = Some(v);
         self
     }
-    pub fn message_type(mut self, v: &str) -> RpcResponseBuilder {
+    pub fn message_type(mut self, v: &str) -> RpcResponseParamsBuilder {
         self.message_type = Some(v.to_string());
         self
     }
-    pub fn user_id(mut self, v: &str) -> RpcResponseBuilder {
+    pub fn user_id(mut self, v: &str) -> RpcResponseParamsBuilder {
         self.user_id = Some(v.to_string());
         self
     }
-    pub fn headers(mut self, v: &HashMap<String, String>) -> RpcResponseBuilder {
+    pub fn headers(mut self, v: &HashMap<String, String>) -> RpcResponseParamsBuilder {
         self.headers = Some(v.clone());
         self
     }
-    pub fn build(self) -> RpcResponse {
-        RpcResponse {
+    pub fn build(self) -> RpcResponseParams {
+        RpcResponseParams {
             content_type: self.content_type,
             content_encoding: self.content_encoding,
             correlation_id: self.correlation_id,
@@ -193,7 +193,7 @@ impl<'a> BasicRpcServer<'a> {
         todo!();
     }
 
-    pub async fn start(&self) -> Result<(&mut Receiver<SubscriptionContent>, &Sender<SubscriptionResponse>), String> {
+    pub async fn start(&mut self) -> Result<&mut Receiver<SubscriptionContent>, String> {
         if self.subscriber.is_none() {
             if let Err(e) = self.init_subscriber().await {
                 return Err(e);
@@ -205,7 +205,57 @@ impl<'a> BasicRpcServer<'a> {
             }
         }
 
-        todo!();
+        if let Some(s) = &mut self.subscriber {
+            match s.subscribe_with_auto_ack().await {
+                Ok(rx) => return Ok(rx),
+                Err(e) => return Err(e.to_string()),
+            };
+        } else {
+            Err("no subscriber object available".to_string())
+        }
+    }
+
+    pub async fn send_respond(&self, content: Vec<u8>, reply_to_queue: &str, params: &RpcResponseParams) -> Result<(), String> {
+        match &self.publisher {
+            Some(p) => {
+                let mut pp = PublishingParams::default();
+                pp.exchange = Some("".to_string());
+                pp.routing_key = Some(reply_to_queue.to_string());
+                pp.app_id = Some(self.params.app_id.as_ref().unwrap().clone());
+
+                if let Some(v) = &params.content_type {
+                    pp.content_type = Some(v.clone());
+                }
+                if let Some(v) = &params.content_encoding {
+                    pp.content_encoding = Some(v.clone());
+                }
+                if let Some(v) = &params.correlation_id {
+                    pp.correlation_id = Some(v.clone());
+                }
+                if let Some(v) = &params.message_id {
+                    pp.message_id = Some(v.clone());
+                }
+                if let Some(v) = &params.timestamp {
+                    pp.timestamp = Some(*v);
+                }
+                if let Some(v) = &params.message_type {
+                    pp.message_type = Some(v.clone());
+                }
+                if let Some(v) = &params.user_id {
+                    pp.user_id = Some(v.clone());
+                }
+                if let Some(v) = &params.headers {
+                    pp.headers = Some(v.clone());
+                }
+
+                if let Err(x) = p.publish_with_params(content, &pp).await {
+                    return Err(x.to_string());
+                } else {
+                    return Ok(());
+                }
+            },
+            None => return Err("no publisher object available".to_string()),
+        }
     }
 }
 
