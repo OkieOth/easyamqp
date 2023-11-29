@@ -6,7 +6,7 @@ use tokio::time::{sleep, Duration};
 
 fn extract_json_names(json_str: &str) -> Vec<String> {
     //println!("{}", conn_json_str);
-    let v: Value = serde_json::from_str(&json_str).expect("Error while parse Json");
+    let v: Value = serde_json::from_str(json_str).expect("Error while parse Json");
     let json_path =
         JsonPath::parse("$..name").expect("error while construct json_path");
     let node_list = json_path.query(&v);
@@ -44,13 +44,13 @@ fn get_exchanges(
             if json_str.len() == 0 {
                 return None;
             }
-            return Some(extract_json_names(&json_str));
+            Some(extract_json_names(&json_str))
         }
         Err(_e) => {
             println!("failed to execute rabbitmqadmin to list connections");
-            return None;
+            None
         }
-    };
+    }
 }
 
 fn get_queues(
@@ -77,13 +77,13 @@ fn get_queues(
             if json_str.len() == 0 {
                 return None;
             }
-            return Some(extract_json_names(&json_str));
+            Some(extract_json_names(&json_str))
         }
         Err(_e) => {
             println!("failed to execute rabbitmqadmin to list connections");
-            return None;
+            None
         }
-    };
+    }
 }
 
 fn check_binding(
@@ -115,13 +115,13 @@ fn check_binding(
             let json_path =
                 JsonPath::parse(binding_json_path).expect("error while construct json_path");
             let node_list = json_path.query(&v);
-            return node_list.len() > 0;
+            !node_list.is_empty()
         }
         Err(_e) => {
             println!("failed to execute rabbitmqadmin to list connections");
-            return false;
+            false
         }
-    };
+    }
 }
 
 
@@ -170,7 +170,7 @@ fn create_exchange_test() {
                }
                assert_eq!(found, 3);
             },
-            None => assert!(false),
+            None => panic!(),
 
         }
 
@@ -229,7 +229,7 @@ fn create_queues_test() {
                }
                assert_eq!(found, 3);
             },
-            None => assert!(false),
+            None => panic!(),
         }
     });
 }

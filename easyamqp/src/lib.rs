@@ -5,6 +5,8 @@ mod rabbitclient;
 mod topology;
 mod worker;
 pub mod utils;
+pub mod rpc_client;
+pub mod rpc_server;
 
 pub use rabbitclient::{RabbitConParams, RabbitConParamsBuilder, RabbitClient};
 pub use topology::{ExchangeDefinition, ExchangeType, ExchangeDefinitionBuilder,
@@ -12,6 +14,8 @@ pub use topology::{ExchangeDefinition, ExchangeType, ExchangeDefinitionBuilder,
 pub use publisher::{Publisher, PublishError, PublisherParams, PublishingParams,
     PublisherParamsBuilder, PublishingParamsBuilder};
 pub use subscriber::{Subscriber, SubscribeParams, SubscriptionContent, SubscriptionResponse};
-    pub fn dummy() {
+
+
+pub fn dummy() {
     println!("    Hello, from the lib!");
 }

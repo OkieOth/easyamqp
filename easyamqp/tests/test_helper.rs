@@ -47,11 +47,11 @@ pub async fn get_connection_name(conn_name: &str) -> Result<String, String> {
 pub async fn test_connection_count(conn_name: &str, expected: usize) {
     match list_from_rabbitmqadmin("connections").await {
         Ok(s) => {
-            let con_count = get_connection_count(&s, &conn_name).await.unwrap();
+            let con_count = get_connection_count(&s, conn_name).await.unwrap();
             assert_eq!(expected, con_count, "wrong connection count for: {}: {}", conn_name, s);
         },
         Err(msg) => {
-            assert!(false, "{}", msg);
+            panic!("{}", msg);
         },
     }
 }
@@ -62,7 +62,7 @@ pub async fn close_connection(user_con_name: &str) -> Result<(), String> {
     let rabbit_server = get_env_var_str("RABBIT_SERVER", "127.0.0.1");
 
 
-    let con_name = get_connection_name(&user_con_name).await.unwrap();
+    let con_name = get_connection_name(user_con_name).await.unwrap();
 
 
     // Build the URL
@@ -79,12 +79,12 @@ pub async fn close_connection(user_con_name: &str) -> Result<(), String> {
     let request = client.delete(&url)
         .header(header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!(
             "Basic {}",
-            base64::engine::general_purpose::STANDARD.encode(&format!("{}:{}", user_name, password))
+            base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", user_name, password))
         )).map_err(|e| e.to_string())?);
 
     // Send the request asynchronously
     if let Err(e) = request.send().await {
-        print!("error while del con: {}", e.to_string());
+        print!("error while del con: {}", e);
     }
 
     Ok(())
@@ -111,7 +111,7 @@ pub async fn del_queue(queue_name: &str) -> Result<(), String> {
     let request = client.delete(&url)
         .header(header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!(
             "Basic {}",
-            base64::engine::general_purpose::STANDARD.encode(&format!("{}:{}", user_name, password))
+            base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", user_name, password))
         )).map_err(|e| e.to_string())?);
 
     // Send the request asynchronously
@@ -155,7 +155,7 @@ pub async fn list_from_rabbitmqadmin(obj_type: &str) -> Result<String, String> {
     let request = client.get(&url)
         .header(header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!(
             "Basic {}",
-            base64::engine::general_purpose::STANDARD.encode(&format!("{}:{}", user_name, password))
+            base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", user_name, password))
         )).map_err(|e| e.to_string())?);
 
     // Send the request asynchronously

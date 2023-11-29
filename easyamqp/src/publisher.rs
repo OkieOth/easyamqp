@@ -1,12 +1,13 @@
 use crate::{worker::Worker, rabbitclient::ClientCommand};
 use tokio::sync::Mutex;
-use std::sync::Arc;
+use std::{sync::Arc, collections::HashMap};
 use amqprs::{channel::{Channel, BasicPublishArguments}, BasicProperties};
-use log::{debug, error, info, warn};
+use amqprs::{FieldTable, FieldName, FieldValue, ShortStr, LongStr};
+use log::{debug, error, info};
 use tokio::time::{sleep, Duration};
 use tokio::task;
 
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Sender;
 use crate::callbacks::RabbitChannelCallback;
 
 pub struct Publisher {
@@ -19,7 +20,7 @@ impl Drop for Publisher {
         let w = self.worker.clone();
         task::spawn(async move {
             let mut worker_guard = w.lock().await;
-            let worker: &mut Worker = &mut *worker_guard;
+            let worker: &mut Worker = &mut worker_guard;
             debug!("worker (id={}) will be deleted", worker.id);
             if let Err(e) = worker.callback.tx_req.send(ClientCommand::RemoveWorker(worker.id)).await {
                 error!("error while sending request to delete worker (id={}): {}",
@@ -45,38 +46,70 @@ impl Publisher {
             params,
             worker: Arc::new(Mutex::new(worker_cont)),
         })
-    } 
+    }
+
+    pub async fn new_from_worker(worker: &Arc<Mutex<Worker>>, params: PublisherParams) -> Result<Publisher, String> {
+        let w = worker.clone();
+        Ok(Publisher {
+            params,
+            worker: w,
+        })
+    }
 
     pub async fn publish(&self, content: Vec<u8>) -> Result<(), PublishError> {
         let mut params = PublishingParams::default();
         if self.params.exchange.is_some() {
-            params.exchange = self.params.exchange.clone()
+            params.exchange = self.params.exchange.clone();
         }
         if self.params.routing_key.is_some() {
-            params.routing_key = self.params.routing_key.clone()
+            params.routing_key = self.params.routing_key.clone();
         }
         if self.params.content_type.is_some() {
-            params.content_type = self.params.content_type.clone()
+            params.content_type = self.params.content_type.clone();
         }
         if self.params.content_encoding.is_some() {
-            params.content_encoding = self.params.content_encoding.clone()
+            params.content_encoding = self.params.content_encoding.clone();
         }
         if self.params.priority.is_some() {
-            params.priority = self.params.priority.clone()
+            params.priority = self.params.priority.clone();
         }
         if self.params.mandatory.is_some() {
-            params.mandatory = self.params.mandatory.clone()
+            params.mandatory = self.params.mandatory;
         }
         if self.params.expiration.is_some() {
-            params.expiration = self.params.expiration.clone()
+            params.expiration = self.params.expiration.clone();
         }
         if self.params.message_type.is_some() {
-            params.message_type = self.params.message_type.clone()
+            params.message_type = self.params.message_type.clone();
         }
         if self.params.user_id.is_some() {
-            params.user_id = self.params.user_id.clone()
+            params.user_id = self.params.user_id.clone();
         }
+        if self.params.reply_to.is_some() {
+            params.reply_to = self.params.reply_to.clone();
+        }
+        params.headers = self.params.headers.clone();
         self.publish_with_params(content, &params).await
+    }
+
+    async fn create_headers(&self, params: &PublishingParams) -> Option<FieldTable> {
+        if let Some(h) = &params.headers {
+            let mut f = FieldTable::new();
+            for k in h.keys() {
+                let v = h.get(k);
+                if let Some(c) = v {
+                    let ks = ShortStr::try_from(k.as_str()).unwrap();
+                    let key = FieldName::from(ks);
+                    let hk = LongStr::try_from(c.as_str()).unwrap();
+                    let header_cont = FieldValue::S(hk);
+                    f.insert(key, header_cont);
+                }
+            }
+            Some(f)
+        } else {
+            None
+        }
+
     }
 
     async fn create_basic_props(&self, params: &PublishingParams) -> Result<BasicProperties, String> {
@@ -98,17 +131,24 @@ impl Publisher {
             },
             None => None,
         };
+        let headers = self.create_headers(params).await;
+        let mut reply_to: Option<String> = None;
+        if self.params.reply_to.is_some() {
+            reply_to = self.params.reply_to.clone();
+        } else if params.reply_to.is_some() {
+            reply_to = params.reply_to.clone();
+        }
         Ok(BasicProperties::new(
             params.content_type.clone(),
             params.content_encoding.clone(),
-            None,
+            headers,
             None,
             prio,
             params.correlation_id.clone(),
-            None,
+            reply_to,
             params.expiration.clone(),
             params.message_id.clone(),
-            params.timestamp.clone(),
+            params.timestamp,
             params.message_type.clone(),
             params.user_id.clone(),
             params.app_id.clone(),
@@ -117,16 +157,29 @@ impl Publisher {
     }
 
     async fn create_publish_args(&self, params: &PublishingParams) -> Result<BasicPublishArguments, String> {
-        if params.exchange.is_none() || params.routing_key.is_none() {
-            return Err("exchange and routing keys are needed parameters".to_string());
-        }
         let mut pa = BasicPublishArguments::default();
-        pa.exchange = params.exchange.as_ref().unwrap().to_string();
-        pa.routing_key = params.routing_key.as_ref().unwrap().to_string();
+        let exchange: &String;
+        if let Some(e) = self.params.exchange.as_ref() {
+            exchange = e;
+        } else if let Some(e) = params.exchange.as_ref() {
+            exchange = e;
+        } else {
+            return Err("exchange is a needed parameter".to_string());
+        };
+        let routing_key: &String;
+        if let Some(r) = self.params.routing_key.as_ref() {
+            routing_key = r;
+        } else if let Some(r) = params.routing_key.as_ref() {
+            routing_key = r;
+        } else {
+            return Err("routing_key is a needed parameter".to_string());
+        };
+        pa.exchange = exchange.clone();
+        pa.routing_key = routing_key.clone();
         if params.mandatory.is_some() {
             pa.mandatory = params.mandatory.unwrap();
         }
-        return Ok(pa);
+        Ok(pa)
     }
 
 
@@ -140,7 +193,7 @@ impl Publisher {
             },
             Err(msg) => Err(msg),
         };
-        return ret;
+        ret
     }
 
     async fn publish_with_params_impl(&self, content: Vec<u8>, params: &PublishingParams, channel: &Channel) -> Result<(), PublishError> {
@@ -148,17 +201,17 @@ impl Publisher {
             Ok((basic_props, publish_args)) => {
                 match channel.basic_publish(basic_props, content, publish_args).await {
                     Ok(_) => {
-                        return Ok(());
+                        Ok(())
                     },
                     Err(e) => {
                         let msg = e.to_string();
                         error!("error while publishing: {}", msg);
-                        return Err(PublishError::PublishError(msg));
+                        Err(PublishError::PublishError(msg))
                     }
                 }
             },
             Err(msg) => {
-                return Err(PublishError::ParameterError(msg));
+                Err(PublishError::ParameterError(msg))
             }
         }
     }
@@ -169,11 +222,11 @@ impl Publisher {
         let max_reconnect_attempts = 5;
         loop {
             let mut worker_guard = self.worker.lock().await;
-            let worker: &mut Worker = &mut *worker_guard;
+            let worker: &mut Worker = &mut worker_guard;
             match &worker.channel {
                 Some(c) => {
                     info!("publish to channel={}", c.channel_id().to_string());
-                    return self.publish_with_params_impl(content, &params, &c).await;
+                    return self.publish_with_params_impl(content, params, c).await;
                 },
                 None => {
                     if reconnect_attempts > max_reconnect_attempts {
@@ -185,13 +238,14 @@ impl Publisher {
                         let sleep_time = Duration::from_millis(reconnect_millis);
                         debug!("sleep for {} seconds before try to reestablish topology ...",reconnect_millis);
                         sleep( sleep_time ).await;
-                        reconnect_millis = reconnect_millis * 2;
+                        reconnect_millis *= 2;
                         reconnect_attempts += 1;
                     }
                 },
             }
         }
     }
+
 }
 
 #[derive(Debug, Clone, Default)]
@@ -206,6 +260,8 @@ pub struct PublisherParams {
     pub mandatory: Option<bool>,
     pub user_id: Option<String>,
     pub app_id: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub reply_to: Option<String>,
 }
 
 impl PublisherParams {
@@ -226,6 +282,8 @@ pub struct PublisherParamsBuilder {
     mandatory: Option<bool>,
     user_id: Option<String>,
     app_id: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    reply_to: Option<String>,
 }
 
 impl PublisherParamsBuilder {
@@ -273,6 +331,14 @@ impl PublisherParamsBuilder {
         self.app_id = Some(v.to_string());
         self
     }
+    pub fn reply_to(mut self, v: &str) -> PublisherParamsBuilder {
+        self.reply_to = Some(v.to_string());
+        self
+    }
+    pub fn headers(mut self,v: &HashMap<String, String>) -> PublisherParamsBuilder {
+        self.headers = Some(v.clone());
+        self
+    }
 
     pub fn build(self) -> PublisherParams {
         PublisherParams {
@@ -286,6 +352,8 @@ impl PublisherParamsBuilder {
             mandatory: self.mandatory,
             user_id: self.user_id,
             app_id: self.app_id,
+            headers: self.headers,
+            reply_to: self.reply_to,
         }
     }
 }
@@ -331,6 +399,8 @@ pub struct PublishingParams {
     pub message_type: Option<String>,
     pub user_id: Option<String>,
     pub app_id: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub reply_to: Option<String>,
 }
 
 impl PublishingParams {
@@ -354,6 +424,8 @@ pub struct PublishingParamsBuilder {
     message_type: Option<String>,
     user_id: Option<String>,
     app_id: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    reply_to: Option<String>,
 }
 
 impl PublishingParamsBuilder {
@@ -413,6 +485,14 @@ impl PublishingParamsBuilder {
         self.app_id = Some(v.to_string());
         self
     }
+    pub fn reply_to(mut self,v: &str) -> PublishingParamsBuilder {
+        self.reply_to = Some(v.to_string());
+        self
+    }
+    pub fn headers(mut self,v: &HashMap<String, String>) -> PublishingParamsBuilder {
+        self.headers = Some(v.clone());
+        self
+    }
     pub fn build(self) -> PublishingParams {
         PublishingParams {
             exchange: self.exchange,
@@ -428,6 +508,8 @@ impl PublishingParamsBuilder {
             message_type: self.message_type,
             user_id: self.user_id,
             app_id: self.app_id,
+            headers: self.headers,
+            reply_to: self.reply_to
         }
     }
 }
@@ -453,7 +535,7 @@ impl std::fmt::Display for PublishError {
 
 #[cfg(test)]
 mod tests {
-    use crate::publisher::{PublisherParams, PublishingParams, MessagePriority};
+    use crate::publisher::{PublisherParams, MessagePriority};
 
     #[test]
     fn publisher_builder_test() {

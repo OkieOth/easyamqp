@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::sync::Arc;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep, timeout};
@@ -8,7 +9,6 @@ use tokio::sync::mpsc::{Receiver, Sender, channel};
 use amqprs::consumer::AsyncConsumer;
 use amqprs::channel::{BasicAckArguments, BasicConsumeArguments, Channel, BasicQosArguments};
 use amqprs::{Deliver, BasicProperties};
-use crate::topology::{QueueDefinition, QueueBindingDefinition};
 use crate::callbacks::RabbitChannelCallback;
 use crate::{worker::Worker, rabbitclient::ClientCommand};
 
@@ -52,6 +52,7 @@ pub struct SubscriptionContent {
     pub app_id: Option<String>,
     pub data: Vec<u8>,
     pub delivery_tag: u64,
+    pub headers: Option<HashMap<String, String>>,
 }
 
 impl SubscriptionContent {
@@ -89,6 +90,16 @@ impl SubscriptionContent {
         }
         if basic_properties.app_id().is_some() {
             ret.app_id = Some(basic_properties.app_id().unwrap().to_string());
+        }
+        if basic_properties.headers().is_some() {
+            let mut headers_dict = HashMap::<String, String>::new();
+            let headers = basic_properties.headers().unwrap();
+            for k in headers.as_ref().keys() {
+                if let Some(v) = headers.get(k) {
+                    headers_dict.insert(k.to_string(), v.to_string());
+                }
+            }
+            ret.headers = Some(headers_dict);
         }
 
         ret

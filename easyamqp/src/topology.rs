@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use tokio::sync::mpsc::Sender;
 
 use amqprs::{
@@ -331,21 +331,9 @@ impl Topology {
     ) -> Result<(), String> {
         match self.declare_queue_binding_base(&binding_def, con).await {
             Ok(_) => {
-                // if the exchange is of type auto_delete, maybe the topology needs to be restored
-                // after a connection loss
                 {
                     let exchange_name = &binding_def.exchange;
                     let queue_name = &binding_def.queue;
-                    let exchange_result = self
-                        .exchanges
-                        .iter()
-                        .filter(|item| (item.name == *exchange_name) && (item.auto_delete == true))
-                        .next();
-                    let queue_result = self
-                        .queues
-                        .iter()
-                        .filter(|item| (item.name == *queue_name) && (item.auto_delete == true))
-                        .next();
 
                     if !self
                         .bindings

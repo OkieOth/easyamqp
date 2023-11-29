@@ -1,9 +1,7 @@
 mod test_helper;
 
-use easyamqp::{RabbitClient, RabbitConParams, 
-    ExchangeDefinition, ExchangeType,
-    QueueDefinition, QueueBindingDefinition,
-    Publisher, PublisherParams, 
+use easyamqp::{RabbitClient, ExchangeDefinition, QueueDefinition, 
+    QueueBindingDefinition, Publisher, PublisherParams, 
     Subscriber, SubscribeParams, SubscriptionContent, SubscriptionResponse};
 use tokio::time::{sleep, Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -22,7 +20,7 @@ fn test_multiple_subscribers() {
         .block_on(async {
         
         let conn_name = "con_test_multiple_subscribers";
-        let (mut client, _) = RabbitClient::get_default_client_with_name(&conn_name).await;
+        let (mut client, _) = RabbitClient::get_default_client_with_name(conn_name).await;
         client.connect().await.unwrap();
 
         let exchange_name = "test_multiple_subscribers";
@@ -75,8 +73,7 @@ fn test_multiple_subscribers() {
         if let Ok(s) = client.new_subscriber(sub_params_1).await {
             subscriber_1 = s;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
         let sub_params_2 = SubscribeParams::builder(queue_name, "subscriber_2")
             .auto_ack(false)
@@ -86,8 +83,7 @@ fn test_multiple_subscribers() {
         if let Ok(s) = client.new_subscriber(sub_params_2).await {
             subscriber_2 = s;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
 
         let mut received_count_1 = 0;
@@ -101,9 +97,7 @@ fn test_multiple_subscribers() {
                 tx_response_1 = txr;
             },
             Err(e) => {
-                print!("{}", e.to_string());
-                assert!(false, "Error while subscribe 1: {}", e.to_string());
-                return;
+                panic!("Error while subscribe 1: {}", e);
             }
         }
         let rx_content_2: &mut Receiver<SubscriptionContent>;
@@ -114,9 +108,7 @@ fn test_multiple_subscribers() {
                 tx_response_2 = txr;
             },
             Err(e) => {
-                print!("{}", e.to_string());
-                assert!(false, "Error while subscribe 2: {}", e.to_string());
-                return;
+                panic!("Error while subscribe 2: {}", e);
             }
         }
 
@@ -154,9 +146,9 @@ fn test_multiple_subscribers() {
             }
         }
 
-        test_helper::test_connection_count(&conn_name, 1).await;
-        let cn = test_helper::get_connection_name(&conn_name).await;
-        assert!(cn.is_ok() && cn.unwrap().len()>0);
+        test_helper::test_connection_count(conn_name, 1).await;
+        let cn = test_helper::get_connection_name(conn_name).await;
+        assert!(cn.is_ok() && !cn.unwrap().is_empty());
 
         assert!(received_count_1>0);
         assert!(received_count_2>0);

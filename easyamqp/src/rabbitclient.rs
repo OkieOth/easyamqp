@@ -248,6 +248,37 @@ impl RabbitClient {
         }
     }
 
+    /// This function is needed for publisher that are used in the
+    /// RPC context, because here subscribers and publishers share
+    /// the same channel
+    pub async fn new_publisher_from_worker(&self, params: PublisherParams, worker: &Arc<Mutex<Worker>>) -> Result<Publisher, String> {
+        debug!("new_publisher_from_params is wating for lock ...");
+        let mut guard = self.cont.lock().await;
+        debug!("new_publisher_from_params got lock");
+        let client_cont: &mut ClientImplCont = &mut *guard;
+
+        match Publisher::new_from_worker(worker, params).await {
+            Ok(publisher) => {
+                {
+                    let mut worker_guard = publisher.worker.lock().await;
+                    let worker: &mut Worker = &mut *worker_guard;
+                    match Self::set_channel_to_worker(&client_cont.connection,worker, false).await {
+                        Ok(_) => {
+                            client_cont.workers.push(publisher.worker.clone());
+                        },
+                        Err(msg) => {
+                            return Err(msg);
+                        },
+                    }
+                }
+                return Ok(publisher);
+            },
+            Err(msg) => {
+                return Err(msg);
+            },
+        }
+    }
+
     pub async fn new_publisher(&self) -> Result<Publisher, String> {
         let params = PublisherParams::builder().build();
         self.new_publisher_from_params(params).await
@@ -364,7 +395,7 @@ impl RabbitClient {
         let client_cont: &mut ClientImplCont = &mut *guard;
         // TODO maybe multiple tries???
         if client_cont.connection.is_some() {
-            client_cont.topology.check_queue(id, &client_cont.connection.as_ref().unwrap()).await;
+            let _ = client_cont.topology.check_queue(id, &client_cont.connection.as_ref().unwrap()).await;
         }
     }
 
@@ -427,7 +458,7 @@ impl RabbitClient {
                 worker.channel = None;
             }
             if let Err(e) = worker.callback.tx_req.send(ClientCommand::GetChannel(worker.id)).await {
-                error!("error while requesting channel for worker (id={})", worker.id);
+                error!("error while requesting channel for worker (id={}): {}", worker.id, e.to_string());
             }
         }
     }

@@ -21,14 +21,14 @@ fn test_queue_loss_test() {
         
         let conn_name_sub = "queue_loss_test_subscriber";
         let conn_name_pub = "queue_loss_test_publisher";
-        let (mut client_pub, _) = RabbitClient::get_default_client_with_name(&conn_name_pub).await;
+        let (mut client_pub, _) = RabbitClient::get_default_client_with_name(conn_name_pub).await;
         client_pub.connect().await.unwrap();
 
         let exchange_name = "test_queue_loss";
         let queue_name = "test_queue_loss.queue";
         let routing_key = "test";
 
-        let (mut client_sub, _) = RabbitClient::get_default_client_with_name(&conn_name_sub).await;
+        let (mut client_sub, _) = RabbitClient::get_default_client_with_name(conn_name_sub).await;
         client_sub.connect().await.unwrap();
 
 
@@ -87,8 +87,7 @@ fn test_queue_loss_test() {
         if let Ok(s) = client_sub.new_subscriber(sub_params_1).await {
             subscriber_1 = s;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
         let sub_params_2 = SubscribeParams::builder(queue_name, "subscriber_2")
             .auto_ack(false)
@@ -98,8 +97,7 @@ fn test_queue_loss_test() {
         if let Ok(s) = client_sub.new_subscriber(sub_params_2).await {
             subscriber_2 = s;
         } else {
-            assert!(false);
-            return;
+            panic!();
         }
 
         let mut received_count_1 = 0;
@@ -113,9 +111,7 @@ fn test_queue_loss_test() {
                 tx_response_1 = txr;
             },
             Err(e) => {
-                print!("{}", e.to_string());
-                assert!(false, "Error while subscribe 1: {}", e.to_string());
-                return;
+                panic!("Error while subscribe 1: {}", e);
             }
         }
         let rx_content_2: &mut Receiver<SubscriptionContent>;
@@ -126,9 +122,7 @@ fn test_queue_loss_test() {
                 tx_response_2 = txr;
             },
             Err(e) => {
-                print!("{}", e.to_string());
-                assert!(false, "Error while subscribe 2: {}", e.to_string());
-                return;
+                panic!("Error while subscribe 2: {}", e);
             }
         }
 
@@ -139,7 +133,7 @@ fn test_queue_loss_test() {
         task::spawn(async move {
             sleep(Duration::from_millis(2000)).await;
             for _ in 0 .. 5 {
-                let _ = test_helper::del_queue(&queue_name).await;
+                let _ = test_helper::del_queue(queue_name).await;
                 sleep(Duration::from_millis(500)).await;
             }
         });
@@ -167,8 +161,7 @@ fn test_queue_loss_test() {
                     }
                 },
                 _ = &mut sleep_obj => {
-                    assert!(false, "timeout reached:, received_count_1={}, received_count_2={}", received_count_1, received_count_2);
-                    break 'outer;
+                    panic!("timeout reached:, received_count_1={}, received_count_2={}", received_count_1, received_count_2);
                 }
             }
             // if received_count_1 + received_count_2 > 500 && ! con_changed {
