@@ -3,5 +3,6 @@
 
 members = [
     "easyamqp",
-    "examples/easyrun"
+    "examples/easyrun",
+    "examples/simple_pubsub",
 ]
